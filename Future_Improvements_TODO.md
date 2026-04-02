@@ -18,9 +18,9 @@ This document outlines the critical next steps to evolve the `FAIR-NAMs-Squad` f
   - **Scribe Tool:** File I/O capabilities so the agent can write directly to disk iteratively.
 
 ## Phase 3: Automated Lineage & Epistemic Tracking
-- [ ] **Enforce JSON-structured Retriever Outputs.** Modify the system prompt for retrieval chains so the LLM must output knowledge facts in strict JSON: `{"fact": "...", "source": "...", "epistemic_tag": "[FACT]"}`.
-- [ ] **Automate the Traceability Matrix.** Write a python script or independent agent that hooks into the LangGraph state to automatically compile the `Knowledge_Traceability_Matrix.md` post-execution, entirely removing manual intervention.
+- [x] **Enforce JSON-structured Retriever Outputs.** Modify the system prompt for retrieval chains so the LLM must output knowledge facts in strict JSON: `{"fact": "...", "source": "...", "epistemic_tag": "[FACT]"}`.
+- [x] **Automate the Traceability Matrix.** Write a python script or independent agent that hooks into the LangGraph state to automatically compile the `Knowledge_Traceability_Matrix.md` post-execution, entirely removing manual intervention.
 
 ## Phase 4: State-Machine Manuscript Assembly
-- [ ] **Implement a JSON State Object for Drafting.** Switch the drafting pipeline from a single massive prompt to a resilient state machine: `{"abstract": "", "intro": "", "methods": ""}`.
-- [ ] **Build Section-by-Section Adversarial Checkpoints.** Program the `Reviewer-2` agent to automatically block state progression until specific negative constraints (e.g., "no hyping digital biomarkers") are passed on a per-section basis, resolving context-window bloat when writing larger research papers.
+- [x] **Implement a JSON State Object for Drafting.** Switch the drafting pipeline from a single massive prompt to a resilient state machine: `{"abstract": "", "intro": "", "methods": ""}`.
+- [x] **Build Section-by-Section Adversarial Checkpoints.** Program the `Reviewer-2` agent to automatically block state progression until specific negative constraints (e.g., "no hyping digital biomarkers") are passed on a per-section basis, resolving context-window bloat when writing larger research papers.

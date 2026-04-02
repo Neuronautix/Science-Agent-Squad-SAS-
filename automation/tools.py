@@ -96,3 +96,16 @@ def search_you_engine(query: str) -> str:
         return "\n\n".join(snippets)
     except Exception as e:
         return f"Error contacting You.com API: {e}"
+
+@tool
+def append_traceability_matrix(fact: str, source: str, epistemic_tag: str) -> str:
+    """Logs a documented fact and its source publicly into the Knowledge Traceability Matrix.
+    Use this IMMEDIATELY after using search tools to secure the repository's epistemic integrity trail."""
+    filepath = os.path.join(os.path.dirname(__file__), "..", "Knowledge_Traceability_Matrix.md")
+    try:
+        new_row = f"| *Live Search:* {source} | **Journalist** | {fact} | Automatically sourced and summarized via Tool API. | **{epistemic_tag}** |\n"
+        with open(filepath, "a", encoding="utf-8") as f:
+            f.write(new_row)
+        return f"SUCCESS: Logged '{epistemic_tag}' finding to Traceability Matrix."
+    except Exception as e:
+        return f"FAILED to append to Traceability Matrix: {e}"
