@@ -40,7 +40,7 @@ The bottleneck for NAM adoption is not modeling, artificial intelligence, or sen
 Because centralized data pooling is an illusion in the pharmaceutical industry due to IP constraints, the solution must respect federated architectures [7]. We propose that the field requires an immediate, lightweight Minimal Metadata Set (MMS) based on FAIR principles (Findable, Accessible, Interoperable, Reusable) without waiting for a perfect universal ontology. 
 
 > **Box 2: Proposed Minimal Metadata Set (MMS) Schema**
-> *Designed for federated JSON-LD architectures, bridging episodic SEND formats with continuous longitudinal streams.*
+> *Designed for federated JSON-LD architectures, bridging episodic SEND formats with continuous longitudinal streams. An executable reference implementation (`mms_schema_v1.jsonld`) mapped to Schema.org and PROV-O is publicly available at: [https://github.com/dhuzard/FAIR-NAMs-Squad/tree/main/schemas](https://github.com/dhuzard/FAIR-NAMs-Squad/tree/main/schemas)*
 > 
 > * **Study Context:** Study ID, Objective, GLP Status, Site, Protocol Version *(Ensures comparability of study intent and regulatory rigor)*
 > * **Animal Descriptors:** Species, Strain/Substrain, Sex, Age, Source, Microbiological Status *(Critical variables for historical control matching, e.g., VICT3R baseline requirements)*

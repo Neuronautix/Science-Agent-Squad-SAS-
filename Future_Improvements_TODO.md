@@ -3,16 +3,16 @@
 This document outlines the critical next steps to evolve the `FAIR-NAMs-Squad` from a static retrieval-augmented context environment into a fully functional, autonomous Multi-Agent framework with verifiable technical outputs.
 
 ## Phase 1: Moving from "Show" to "Implementation"
-- [ ] **Create the `schemas/` directory in the repository.**
-- [ ] **Draft the Reference Implementation (`mms_schema_v1.jsonld`).**
+- [x] **Create the `schemas/` directory in the repository.**
+- [x] **Draft the Reference Implementation (`mms_schema_v1.jsonld`).**
   - Translate the tabular "Box 2" MMS from the article draft into a machine-readable JSON-LD schema.
   - Implement PROV-O ontology headers for provenance tracking (for items like Preprocessing Logs).
   - Test validation with standard JSON-LD parsing libraries to prove interoperability.
-- [ ] **Update Article Draft:** Embed the final GitHub repository URL referencing the new `schemas/` directory to prove to peer-reviewers that the concept is technically grounded.
+- [x] **Update Article Draft:** Embed the final GitHub repository URL referencing the new `schemas/` directory to prove to peer-reviewers that the concept is technically grounded.
 
 ## Phase 2: Agent Framework Upgrade (LangGraph / CrewAI)
-- [ ] **Sunset standard LangChain basic pipeline.** Move from `automation/ingest.py` simple vector lookup to an event-driven framework (e.g., LangGraph or CrewAI).
-- [ ] **Implement Active Tool Calling for Agents.**
+- [x] **Sunset standard LangChain basic pipeline.** Move from `automation/ingest.py` simple vector lookup to an event-driven framework (e.g., LangGraph or CrewAI).
+- [x] **Implement Active Tool Calling for Agents.**
   - **Dr. Nexus Tool:** PubMed API or EuropePMC API integration for live programmatic retrieval of peer-reviewed validation pathways.
   - **Semantica Tool:** API hooks to validate generated schemas against `schema.org`.
   - **Scribe Tool:** File I/O capabilities so the agent can write directly to disk iteratively.
