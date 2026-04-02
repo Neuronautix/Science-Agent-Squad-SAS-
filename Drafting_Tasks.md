@@ -1,0 +1,13 @@
+- `[x]` Phase 1: Blueprint & Outline
+  - Create narrative outline
+  - Design Box 2 (Minimal Metadata Set)
+- `[x]` Phase 2: Regulatory & Infrastructure Deep Dive
+  - Box 1: The Regulatory Landscape (BioEthos)
+  - Limitations and Risks Section (BioEthos)
+  - Infrastructure Reality Check of MMS (DataForge)
+- `[x]` Phase 3: The Scribe's Assembly
+  - Draft Main Text (1200 - 1800 words)
+- `[x]` Phase 4: The Crucible
+  - Reviewer-2 Critique
+  - Final Revisions
+  - Generate 5 Key Takeaways
