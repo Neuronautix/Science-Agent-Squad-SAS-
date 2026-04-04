@@ -43,7 +43,7 @@ def execute(prompt: str):
     The swarm will search, reason, validate, and write outputs to the Drafts/ folder.
 
     Example:
-        python -m automation.main execute "Search for the latest FDA guidance on NAMs and summarize."
+        python -m automation.main execute "Review the psychiatric literature on problematic internet use and summarize the findings."
     """
     # Load configuration
     try:

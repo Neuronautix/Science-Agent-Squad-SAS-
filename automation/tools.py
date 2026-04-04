@@ -22,6 +22,7 @@ Built-in Tools:
 
 import os
 import subprocess
+from pathlib import Path
 import requests
 from langchain_core.tools import tool
 
@@ -231,6 +232,30 @@ def scrape_webpage(url: str, max_chars: int = 5000) -> str:
 # ═══════════════════════════════════════════════════════
 
 
+def _get_active_agent_names() -> list[str]:
+    """Return KB folders for personas currently configured in swarm_config.yml."""
+    try:
+        from automation.config import load_config
+
+        config = load_config()
+        agent_names = []
+        for persona in config.get("personas", []):
+            agent_name = Path(persona.get("persona_file", "")).parent.name
+            if agent_name and agent_name not in agent_names:
+                agent_names.append(agent_name)
+        if agent_names:
+            return agent_names
+    except Exception:
+        pass
+
+    agents_dir = os.path.join(os.path.dirname(__file__), "..", "agents")
+    return [
+        d
+        for d in os.listdir(agents_dir)
+        if os.path.isdir(os.path.join(agents_dir, d)) and d != "__pycache__"
+    ]
+
+
 @tool
 def search_knowledge_base(query: str, agent_name: str = "all", top_k: int = 5) -> str:
     """Searches the local Knowledge Base (vectorized documents in agents/*/KB/)
@@ -241,7 +266,7 @@ def search_knowledge_base(query: str, agent_name: str = "all", top_k: int = 5) -
 
     Args:
         query: The search query to find relevant passages.
-        agent_name: Search a specific agent's KB (e.g., 'BioEthos') or 'all'.
+        agent_name: Search a specific agent's KB (e.g., 'ClinicalPsych') or 'all'.
         top_k: Number of top results to return.
     """
     try:
@@ -268,12 +293,7 @@ def search_knowledge_base(query: str, agent_name: str = "all", top_k: int = 5) -
     results = []
 
     if agent_name == "all":
-        agents_dir = os.path.join(os.path.dirname(__file__), "..", "agents")
-        agent_names = [
-            d
-            for d in os.listdir(agents_dir)
-            if os.path.isdir(os.path.join(agents_dir, d)) and d != "__pycache__"
-        ]
+        agent_names = _get_active_agent_names()
     else:
         agent_names = [agent_name]
 

@@ -9,8 +9,8 @@
 
 # ── Swarm Identity ───────────────────────────────────
 swarm:
-  name: "FAIR-NAMs-Squad"
-  description: "Autonomous Research Swarm for Regulatory Toxicology & New Approach Methodologies"
+  name: "PIU-Psych-Squad"
+  description: "Autonomous Research Swarm for psychiatric study of problematic internet use"
   output_dir: "./Drafts"
   traceability_matrix: "./Knowledge_Traceability_Matrix.md"
 
@@ -37,29 +37,39 @@ personas:
       - search_kb
       - append_traceability
 
-  - name: "BioEthos"
-    icon: "🐁"
-    role: "Ethics & Regulatory Officer"
-    persona_file: "./agents/BioEthos/persona.md"
+  - name: "ClinicalPsych"
+    icon: "🧠"
+    role: "Clinical psychiatrist for diagnosis, impairment, and comorbidity"
+    persona_file: "./agents/ClinicalPsych/persona.md"
     tools:
       - search_literature
       - search_web
       - search_kb
 
-  - name: "Semantica"
-    icon: "🦉"
-    role: "Ontologist & FAIR Data Expert"
-    persona_file: "./agents/Semantica/persona.md"
+  - name: "EpiScope"
+    icon: "📊"
+    role: "Epidemiologist and psychometrics reviewer"
+    persona_file: "./agents/EpiScope/persona.md"
     tools:
-      - check_schema_org
+      - search_literature
       - search_web
       - search_kb
 
-  - name: "TechLead"
-    icon: "⚙️"
-    role: "Architect & Implementation Lead"
-    persona_file: "./agents/TechLead/persona.md"
+  - name: "NeuroCogs"
+    icon: "🧪"
+    role: "Mechanisms and neurocognition specialist"
+    persona_file: "./agents/NeuroCogs/persona.md"
     tools:
+      - search_literature
+      - search_web
+      - search_kb
+
+  - name: "CarePath"
+    icon: "🛟"
+    role: "Intervention, prevention, and care pathways specialist"
+    persona_file: "./agents/CarePath/persona.md"
+    tools:
+      - search_literature
       - search_web
       - search_kb
 
@@ -134,6 +144,8 @@ reviewer:
 
   # Structural elements the output MUST contain
   required_elements:
+    - "a section that distinguishes high engagement from clinically impairing use"
+    - "a short limitations section"
     - "in-text citations (e.g., [1], [2])"
     - "a formal 'References' or 'Reference List' section at the bottom"
 
@@ -164,6 +176,16 @@ system_prompt_template: |
   - {{ p.icon }} **{{ p.name }}** ({{ p.role }}){% if p.content %}
     {{ p.content | truncate(300) }}{% endif %}
   {%- endfor %}
+
+  DOMAIN DIRECTIVE: The target topic is psychiatric and behavioral-science research on
+  problematic internet use (PIU), including internet gaming disorder when relevant.
+  You must distinguish between normal/high engagement and clinically impairing use.
+  Do not imply that all frequent internet use is pathological.
+
+  DIAGNOSTIC DIRECTIVE: When discussing diagnosis, clarify whether a construct is
+  formally recognized (for example, gaming disorder in ICD-11 and internet gaming
+  disorder in DSM-5's section for conditions requiring further study) versus broader
+  umbrella constructs such as problematic internet use or internet addiction.
 
   CRITICAL DIRECTIVE: Whenever you search the web or literature for facts,
   you MUST immediately call the 'append_traceability_matrix' tool to log

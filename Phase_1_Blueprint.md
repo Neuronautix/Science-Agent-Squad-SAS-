@@ -1,36 +1,39 @@
-# Phase 1: Article Blueprint & Metadata Schema
+# Phase 1: PIU Review Blueprint
 
-Based on regulatory context and recent web searches regarding the **VICT3R project** and Home-Cage Monitoring (HCM) digital biomarker validation, we present the foundational blueprint for our opinion piece.
+This blueprint defines a first-pass structure for psychiatric review or evidence-brief work on problematic internet use.
 
 ## 1. Title Variants
-1. "From Virtual Control Groups to Digital Biomarkers: Why New Approach Methodologies Require a Minimal Metadata Standard for Preclinical Research" *(Authoritative)*
-2. "The Metadata Bottleneck: Scaling Regulatory Acceptance for Virtual Control Groups and Home-Cage Digital Biomarkers" *(Problem/Solution focus)*
-3. "Moving Beyond the Algorithm: A Pragmatic Metadata Framework for Data-Centric Preclinical Innovations" *(Translational perspective)*
+1. "Problematic Internet Use in Adolescents: Clinical Boundaries, Mechanisms, and Interventions"
+2. "Beyond Screen Time: A Psychiatric Review of Problematic Internet Use and Internet Gaming Disorder"
+3. "Problematic Internet Use as a Clinical and Public-Mental-Health Construct: What the Evidence Supports"
 
-## 2. Narrative Outline (by Dr. Nexus)
-* **Introduction (The Regulatory Shift):** Open with EMA’s draft qualification for VCGs and the VICT3R project, contextualized by FDA's NAM roadmap and NIH initiatives. Establish that animal-centric paradigms are shifting to data-centric paradigms.
-* **The VICT3R Paradigm & VCGs:** Discuss how constructing VCGs from historical data (e.g., SEND format) requires profound semantic matching. **[GAP Addressed]**: Live search confirms the VICT3R consortium's main hurdle is validation through precise cross-study matching, heavily reliant on highly structured datasets to prove to regulators that safety is not compromised.
-* **Home-Cage Monitoring as the Next Frontier:** Connect VCGs to HCM. HCM provides continuous longitudinal data (digital biomarkers) that could enrich or eventually generate virtual cohorts. However, the lack of an overarching interoperability standard traps these biomarkers in local silos.
-* **The Core Thesis (The Metadata Bottleneck):** Argue that the algorithm is not the problem; the *metadata* is. Without standardizing study context, animal descriptors, and sensor provenance, regulatory validation is impossible.
-* **The Proposed Solution (Box 2):** Introduce the Minimal Metadata Set (MMS). Explain that this is not a comprehensive ontology, but a pragmatic, immediate schema mapping to FAIR principles.
-* **Limitations and Risks:** (To be drafted by BioEthos in Phase 2). Address dataset shift, external validity, and the boundaries of current regulatory acceptance.
-* **Recommendations & Conclusion:** Call to action for pharma, CROs, and academia to adopt the MMS to satisfy EMA/FDA provenance demands.
+## 2. Narrative Outline
+* **Introduction:** Define the target construct and population. Clarify from the outset whether the piece addresses broad problematic internet use, internet gaming disorder, or both.
+* **Clinical Boundary Setting:** Distinguish heavy engagement from clinically impairing use. Emphasize that impairment, loss of control, persistence despite harm, and functional consequences matter more than time online alone.
+* **Diagnostic Status:** Explain where formal recognition exists and where it does not. Internet gaming disorder has the clearest nosological footing, while broader PIU constructs remain heterogeneous.
+* **Epidemiology and Measurement:** Summarize prevalence carefully and foreground instrument heterogeneity, cut-off effects, and sampling limitations.
+* **Clinical Picture and Comorbidity:** Cover mood symptoms, anxiety, ADHD-related symptoms, sleep disturbance, and psychosocial impairment.
+* **Mechanisms:** Present models such as I-PACE, cue-reactivity, reward sensitivity, and executive-control accounts as supported but still incomplete mechanisms.
+* **Interventions and Prevention:** Review CBT, family or school interventions, and the limits of current evidence quality.
+* **Limitations:** Identify cross-sectional designs, convenience samples, diagnostic inconsistency, and weak comparability across studies.
+* **Conclusion:** End with a clinically cautious synthesis that avoids overpathologizing common digital behavior.
 
-## 3. Box 2: Minimal Metadata Set (MMS) Draft (by Semantica & DataForge)
-*Drafting the initial schema. Target mapping formats: JSON-LD, schema.org, PROV-O.*
+## 3. Required Evidence Checks
+| Domain | Minimum Check |
+| :--- | :--- |
+| Construct definition | State whether the source concerns PIU, internet addiction, smartphone overuse, or gaming disorder. |
+| Clinical validity | Report impairment and symptom persistence, not just screen time or frequency. |
+| Epidemiology | Note sampling frame, instrument, and cut-off before using prevalence estimates. |
+| Mechanisms | Mark whether findings are theoretical, cross-sectional, longitudinal, or interventional. |
+| Interventions | Prefer systematic reviews and randomized evidence over single uncontrolled studies. |
 
-| Domain | Minimal Required Fields (MMS) | Rationale for Regulatory Acceptance |
-| :--- | :--- | :--- |
-| **Study Context** | Study ID, Objective, GLP Status, Site, Protocol Version | Ensures comparability of study intent and regulatory rigor. |
-| **Animal Descriptors** | Species, Strain/Substrain, Sex, Age, Source, Microbiological Status | Critical variables for historical control matching (e.g., VICT3R baseline requirements). |
-| **Environment** | Cage System (Home-Cage vs Standard), Group Size, Enrichment, Diet/Water Access, L/D Cycle | Local environmental variances are major drivers of reproducibility failures. |
-| **Device & Sensor** | Vendor, Model, Firmware Version, Sensor Modalities (e.g., RFID, Video), Sampling Rate | Hardware provenance required for digital biomarker validation paths. |
-| **Behavioral Metrics** | Metric Definition, Algorithm/Model Version, Aggregation Window (e.g., 1hr bins), Missing Data Rules | Prevents output divergence due to shifting software pipelines. |
-| **Time & Provenance** | Timestamps (ISO 8601), Batch IDs, Software Environment, Preprocessing Logs | Crucial for the audit trail required by FDA IND submissions. |
+## 4. Suggested Figures or Boxes
+* **Figure 1:** Concept map separating high engagement, screening-positive risk, and clinically impairing disorder.
+* **Figure 2:** Evidence pipeline linking prevalence and measurement, clinical features, mechanisms, and interventions.
+* **Box 1:** Diagnostic cautions for PIU versus gaming disorder.
 
-## 4. Figure Concepts
-* **Figure 1: The Regulatory Convergence Pipeline.** A visual timeline showing EMA VCG consultation, FDA Roadmap, EU Phase-Out, converging into a unified "Data-Centric NAM Validation" bottleneck dependent on metadata.
-* **Figure 2: The Metadata Triangle for Preclinical Confidence.** A schematic showing the interdependency between VCG Historical Data, HCM Digital Biomarkers, and the Minimal Metadata Standard acting as the semantic bridge connecting them.
-
-## 5. Live Search Citations Sourced (For Scribe)
-* We will reference the **VICT3R consortium** (Developing and implementing VIrtual Control groups To reducE animal use in toxicology Research) as the leading example of VCG validation through regulatory engagement and historical matching.
+## 5. Core Citation Anchors
+* Kuss et al. 2014 for epidemiology and measurement heterogeneity.
+* Brand et al. 2016 for I-PACE and mechanism framing.
+* Stevens et al. 2021 for gaming-disorder prevalence estimates and moderator effects.
+* Zajac et al. 2020 and Chang et al. 2022 for treatment evidence.

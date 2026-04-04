@@ -5,25 +5,28 @@ This repository is set up for a "Multi-Agent Swarm" simulation. You can "teach" 
 ## Directory Structure
 ```
 agents/
-  ├── BioEthos/   (Ethics, 3Rs, Stats)
-  │   └── KB/     <-- Drop PDFs, MDs, or Text files here
-  ├── Semantica/  (Ontologies, FAIR)
-  │   └── KB/     <-- Drop RDF, TTL, or Ontology docs here
-  ├── TechLead/    (Symfony, Architecture)
-  │   └── KB/     <-- Drop Code snippets, Configs, or Docs here
-  └── DrNexus/     (Orchestrator)
-      └── KB/     <-- Drop Project Requirements or Goals here
+    ├── ClinicalPsych/  (Diagnosis, impairment, comorbidity)
+    │   └── KB/     <-- Drop PDFs, MDs, or Text files here
+    ├── EpiScope/   (Prevalence, psychometrics, risk factors)
+    │   └── KB/     <-- Drop PDFs, MDs, or Text files here
+    ├── NeuroCogs/  (Mechanisms, executive function, neuroimaging)
+    │   └── KB/     <-- Drop PDFs, MDs, or Text files here
+    ├── CarePath/   (Prevention, treatment, care models)
+    │   └── KB/     <-- Drop PDFs, MDs, or Text files here
+    └── DrNexus/    (Orchestrator)
+            └── KB/     <-- Drop project goals, scope notes, or shared bibliographies here
 ```
 
 ## How to Use
 1.  **Identify the Topic**:
-    -   Is it about *Animal Welfare*? -> **BioEthos**.
-    -   Is it about *Data Standards*? -> **Semantica**.
-    -   Is it about *Code/Infrastructure*? -> **TechLead**.
+    -   Is it about *diagnosis, impairment, or comorbidity*? -> **ClinicalPsych**.
+    -   Is it about *prevalence, scales, or risk/protective factors*? -> **EpiScope**.
+    -   Is it about *executive function, reward, or neuroimaging*? -> **NeuroCogs**.
+    -   Is it about *prevention, CBT, pharmacotherapy, or school/family programs*? -> **CarePath**.
 2.  **Add the File**:
     -   Copy the file (PDF, Markdown, Text) into the corresponding `KB/` folder.
 3.  **Notify the Swarm**:
-    -   In your chat with the AI, mention: "I have added [Filename] to BioEthos's KB. Please digest it."
+    -   In your chat with the AI, mention: "I have added [Filename] to ClinicalPsych's KB. Please digest it."
 
 ## Agent Capabilities
-The agents will use the `find_by_name` and `read_file` tools to scan their specific `KB` folders before answering your questions, ensuring their responses are grounded in the documents you provide.
+The active team is defined in `swarm_config.yml`. The ingestion and KB search flows use the configured personas, so the swarm can be retargeted to a new topic without mixing in unrelated legacy KB folders.

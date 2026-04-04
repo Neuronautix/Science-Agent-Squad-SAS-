@@ -1,16 +1,35 @@
 import os
-import shutil
 from typing import List
-from langchain_community.document_loaders import PyPDFLoader, TextLoader, UnstructuredMarkdownLoader
+from pathlib import Path
+
+from langchain_community.document_loaders import PyPDFLoader, TextLoader
 from langchain_community.embeddings import SentenceTransformerEmbeddings
 from langchain_community.vectorstores import Chroma
-from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 from rich.console import Console
+
+from automation.config import load_config
 
 console = Console()
 
 AGENTS_DIR = os.path.join(os.path.dirname(__file__), "..", "agents")
 DB_DIR = os.path.join(os.path.dirname(__file__), "db")
+
+
+def get_active_agent_names() -> List[str]:
+    try:
+        config = load_config()
+        active_agents = []
+        for persona in config.get("personas", []):
+            agent_name = Path(persona.get("persona_file", "")).parent.name
+            if agent_name and agent_name not in active_agents:
+                active_agents.append(agent_name)
+        if active_agents:
+            return active_agents
+    except Exception as e:
+        console.print(f"[yellow]Warning: could not load configured personas: {e}[/yellow]")
+
+    return [d for d in os.listdir(AGENTS_DIR) if os.path.isdir(os.path.join(AGENTS_DIR, d))]
 
 def load_documents(agent_name: str) -> List:
     kb_path = os.path.join(AGENTS_DIR, agent_name, "KB")
@@ -27,7 +46,7 @@ def load_documents(agent_name: str) -> List:
                     loader = PyPDFLoader(file_path)
                     docs.extend(loader.load())
                 elif file.endswith(".md"):
-                    loader = UnstructuredMarkdownLoader(file_path)
+                    loader = TextLoader(file_path, encoding="utf-8")
                     docs.extend(loader.load())
                 elif file.endswith(".txt"):
                     loader = TextLoader(file_path)
@@ -59,7 +78,7 @@ def ingest_agent_kb(agent_name: str):
     console.print(f"[green]Successfully ingested {len(splits)} chunks for {agent_name}.[/green]")
 
 def main():
-    agents = [d for d in os.listdir(AGENTS_DIR) if os.path.isdir(os.path.join(AGENTS_DIR, d))]
+    agents = get_active_agent_names()
     for agent in agents:
         if agent != "__pycache__":
             ingest_agent_kb(agent)

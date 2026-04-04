@@ -2,7 +2,7 @@
   "@context": {
     "schema": "http://schema.org/",
     "prov": "http://www.w3.org/ns/prov#",
-    "mms": "https://github.com/dhuzard/FAIR-NAMs-Squad/blob/main/schemas/mms_schema_v1.jsonld#",
+    "mms": "https://github.com/dhuzard/piu-psych-swarm/blob/main/schemas/mms_schema_v1.jsonld#",
     "StudyContext": "mms:StudyContext",
     "StudyID": "schema:identifier",
     "Objective": "schema:description",

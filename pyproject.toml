@@ -3,9 +3,9 @@ requires = ["setuptools>=68.0", "wheel"]
 build-backend = "setuptools.backends._legacy:_Backend"
 
 [project]
-name = "research-swarm"
+name = "piu-psych-swarm"
 version = "0.2.0"
-description = "A configurable multi-agent research swarm built on LangGraph"
+description = "A configurable multi-agent research swarm for psychiatric study of problematic internet use"
 readme = "README.md"
 license = {text = "MIT"}
 requires-python = ">=3.10"

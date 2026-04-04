@@ -1,26 +1,27 @@
-# 🚀 FAIR-NAMs-Squad: Future Development Roadmap
+# PIU Psych Swarm: Future Development Roadmap
 
-This document outlines the critical next steps to evolve the `FAIR-NAMs-Squad` from a static retrieval-augmented context environment into a fully functional, autonomous Multi-Agent framework with verifiable technical outputs.
+This document tracks future improvements for the problematic-internet-use psychiatric workflow.
 
-## Phase 1: Moving from "Show" to "Implementation"
-- [x] **Create the `schemas/` directory in the repository.**
-- [x] **Draft the Reference Implementation (`mms_schema_v1.jsonld`).**
-  - Translate the tabular "Box 2" MMS from the article draft into a machine-readable JSON-LD schema.
-  - Implement PROV-O ontology headers for provenance tracking (for items like Preprocessing Logs).
-  - Test validation with standard JSON-LD parsing libraries to prove interoperability.
-- [x] **Update Article Draft:** Embed the final GitHub repository URL referencing the new `schemas/` directory to prove to peer-reviewers that the concept is technically grounded.
+## Phase 1: Clinical Workflow Hardening
 
-## Phase 2: Agent Framework Upgrade (LangGraph / CrewAI)
-- [x] **Sunset standard LangChain basic pipeline.** Move from `automation/ingest.py` simple vector lookup to an event-driven framework (e.g., LangGraph or CrewAI).
-- [x] **Implement Active Tool Calling for Agents.**
-  - **Dr. Nexus Tool:** PubMed API or EuropePMC API integration for live programmatic retrieval of peer-reviewed validation pathways.
-  - **Semantica Tool:** API hooks to validate generated schemas against `schema.org`.
-  - **Scribe Tool:** File I/O capabilities so the agent can write directly to disk iteratively.
+- [ ] Add explicit template outputs for scoping review, narrative review, and evidence brief modes
+- [ ] Add optional screening prompts for adolescent, university, and general-adult populations
+- [ ] Add a traceability-matrix auto-header that inserts task date, population, and target construct
 
-## Phase 3: Automated Lineage & Epistemic Tracking
-- [x] **Enforce JSON-structured Retriever Outputs.** Modify the system prompt for retrieval chains so the LLM must output knowledge facts in strict JSON: `{"fact": "...", "source": "...", "epistemic_tag": "[FACT]"}`.
-- [x] **Automate the Traceability Matrix.** Write a python script or independent agent that hooks into the LangGraph state to automatically compile the `Knowledge_Traceability_Matrix.md` post-execution, entirely removing manual intervention.
+## Phase 2: Tooling Improvements
 
-## Phase 4: State-Machine Manuscript Assembly
-- [x] **Implement a JSON State Object for Drafting.** Switch the drafting pipeline from a single massive prompt to a resilient state machine: `{"abstract": "", "intro": "", "methods": ""}`.
-- [x] **Build Section-by-Section Adversarial Checkpoints.** Program the `Reviewer-2` agent to automatically block state progression until specific negative constraints (e.g., "no hyping digital biomarkers") are passed on a per-section basis, resolving context-window bloat when writing larger research papers.
+- [ ] Replace deprecated LangChain embedding/vectorstore imports with current package paths
+- [ ] Add Europe PMC or Crossref lookup for richer citation metadata
+- [ ] Add a report-mode command that writes directly into a dated draft template
+
+## Phase 3: Methodological Guardrails
+
+- [ ] Add reviewer checks for overpathologizing normal internet use
+- [ ] Add reviewer checks that prevent prevalence claims without measurement caveats
+- [ ] Add reviewer checks that force disorder-status clarification when IGD is mentioned
+
+## Phase 4: Study-Specific Expansion
+
+- [ ] Add separate KB packets for social media disorder, gaming disorder, and smartphone overuse
+- [ ] Add intervention summaries for family-based, school-based, and telehealth pathways
+- [ ] Add prompt packs for grant support, manuscript drafting, and journalistic briefings
