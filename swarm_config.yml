@@ -14,6 +14,18 @@ swarm:
   output_dir: "./Drafts"
   traceability_matrix: "./Knowledge_Traceability_Matrix.md"
 
+# ── Orchestrator Settings ────────────────────────────
+# Controls the multi-agent supervisor pattern.
+# agent:     persona name that acts as orchestrator (must exist in personas list)
+# journalist: persona name that writes final structured output
+# max_agent_calls:          total specialist invocations before forcing Journalist
+# max_tool_rounds_per_agent: tool-use loop limit inside each specialist call
+orchestrator:
+  agent: "Dr. Nexus"
+  journalist: "Journalist"
+  max_agent_calls: 8
+  max_tool_rounds_per_agent: 5
+
 # ── LLM Backend ─────────────────────────────────────
 # Supported providers: openai, anthropic, google
 model:
@@ -148,6 +160,7 @@ reviewer:
     - "a short limitations section"
     - "in-text citations (e.g., [1], [2])"
     - "a formal 'References' or 'Reference List' section at the bottom"
+    - "when discussing AI-chatbot or LLM use, a note on the conceptual instability of the construct and whether evidence meets clinical-level impairment criteria"
 
   # Tone enforcement
   tone: "strictly factual, objective, and neutral"

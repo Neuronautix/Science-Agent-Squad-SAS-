@@ -175,6 +175,79 @@ def load_tools(config: dict) -> list:
     return tool_functions
 
 
+def get_persona_config(config: dict, persona_name: str) -> dict:
+    """Return the full config dict for a single persona, with persona.md content loaded.
+
+    Raises ValueError if the persona is not found in swarm_config.yml.
+    """
+    for persona in config["personas"]:
+        if persona["name"] == persona_name:
+            p = dict(persona)
+            p["content"] = load_persona_content(persona.get("persona_file", ""))
+            return p
+    raise ValueError(
+        f"Persona '{persona_name}' not found in swarm_config.yml. "
+        f"Available: {[p['name'] for p in config['personas']]}"
+    )
+
+
+def load_tools_for_persona(config: dict, persona_cfg: dict) -> list:
+    """Load and return only the tools assigned to a specific persona.
+
+    Respects the per-persona 'tools' list in swarm_config.yml instead of
+    returning every registered tool (as load_tools() does).
+    """
+    allowed_keys = set(persona_cfg.get("tools", []))
+    tool_functions = []
+    seen = set()
+
+    for tool_name, tool_spec in config["tools"].items():
+        if tool_name not in allowed_keys:
+            continue
+        module_path = tool_spec["module"]
+        function_name = tool_spec["function"]
+        key = f"{module_path}.{function_name}"
+        if key in seen:
+            continue
+        seen.add(key)
+        try:
+            module = importlib.import_module(module_path)
+            func = getattr(module, function_name)
+            tool_functions.append(func)
+        except (ModuleNotFoundError, AttributeError) as e:
+            console.print(
+                f"[red]Error loading tool '{tool_name}' for persona "
+                f"'{persona_cfg.get('name', '?')}': {e}[/red]"
+            )
+
+    return tool_functions
+
+
+def build_agent_system_prompt(persona_cfg: dict, epistemic_tags: list = None) -> str:
+    """Build a focused system prompt for a single agent node.
+
+    Unlike build_system_prompt(), this injects only this agent's persona
+    content — not all agents — keeping per-call token cost proportional
+    to one persona rather than the full swarm.
+    """
+    name = persona_cfg.get("name", "Agent")
+    icon = persona_cfg.get("icon", "🤖")
+    role = persona_cfg.get("role", "")
+    content = persona_cfg.get("content", "")
+
+    prompt = f"# {icon} You are {name}\n**Role**: {role}\n\n{content}"
+
+    if epistemic_tags:
+        tags_str = ", ".join(epistemic_tags)
+        prompt += (
+            f"\n\nEPISTEMIC TAGS: Classify every claim with one of: {tags_str}\n"
+            "After every literature or web search, call `append_traceability_matrix` immediately.\n"
+            "Include formal in-text citations in all outputs."
+        )
+
+    return prompt
+
+
 def create_model(config: dict) -> Any:
     """Create an LLM instance from the config's model specification.
 

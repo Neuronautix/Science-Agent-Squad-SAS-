@@ -1,161 +1,415 @@
 """
-graph.py — LangGraph State Machine for the Research Swarm
+graph.py — True Multi-Agent LangGraph State Machine (Supervisor Pattern)
 
-This module builds the core Agent → Tools → Reviewer loop.
-ALL configuration (model, tools, reviewer constraints) is loaded
-dynamically from swarm_config.yml via config.py.
+Architecture
+------------
+Each persona is a separate LangGraph node with its own system prompt and
+scoped tool set. Dr. Nexus (orchestrator) routes between specialists using
+structured output decisions. Token use is optimised by injecting only the
+relevant context into each agent call rather than broadcasting the full
+message history or all persona files to every node.
 
-Graph topology:
-  START → agent → (tools | reviewer)
-                    ↓          ↓
-                  agent    (APPROVED → END)
-                           (REJECTED → agent)  ← max N loops
+Graph topology
+--------------
+  START → orchestrator ─┬→ specialist_A ─┐
+                         ├→ specialist_B ─┤  (all specialists return to orchestrator)
+                         ├→ ...           ┘
+                         └→ Journalist → reviewer ─→ END
+                                  ↑              ↘ Journalist (on rejection)
+
+Token strategy (per call)
+--------------------------
+  Orchestrator  : its persona prompt + compressed findings summary
+  Specialist    : its persona prompt + task + orchestrator instructions
+                  + peer findings capped at MAX_PEER_CHARS chars each
+  Journalist    : its persona prompt + task + full uncompressed findings
+  Reviewer      : reviewer prompt + journalist draft only
 """
 
-from typing import Annotated, Sequence, TypedDict
+from typing import Annotated, TypedDict
 
+from pydantic import BaseModel
 from langgraph.graph import StateGraph, END, START
 from langgraph.graph.message import add_messages
-from langchain_core.messages import BaseMessage, SystemMessage, HumanMessage
+from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 from langgraph.prebuilt import ToolNode
 
-from automation.config import load_config, load_tools, create_model, build_reviewer_prompt
+from automation.config import (
+    load_config,
+    create_model,
+    build_reviewer_prompt,
+    get_persona_config,
+    load_tools_for_persona,
+    build_agent_system_prompt,
+)
+
+# Characters retained from each peer agent's output when shown to another
+# specialist. Keeps cross-agent context lean without losing key facts.
+MAX_PEER_CHARS = 600
 
 
-# ── State Definition ─────────────────────────────────
+# ── State ──────────────────────────────────────────────────────────────────
+
+def _merge_agent_outputs(existing: dict, update: dict) -> dict:
+    """Reducer: merge agent-output dicts; newer values win on key collision."""
+    return {**existing, **update}
+
+
 class GraphState(TypedDict):
-    messages: Annotated[Sequence[BaseMessage], add_messages]
+    """Shared state for the multi-agent supervisor swarm.
+
+    task              Original user prompt — never mutated after initialisation.
+    messages          Append-only audit log of all agent/reviewer messages.
+    agent_outputs     {persona_name: latest findings text} — merged across nodes.
+    next_agent        Routing target set by the orchestrator.
+    next_instructions Specific task for the next agent, set by orchestrator or reviewer.
+    agent_call_count  Running count of specialist invocations (safety valve).
+    reviewer_approved Set True once Reviewer-2 approves the Journalist draft.
+    revision_count    Number of Journalist revision cycles completed.
+    """
+    task: str
+    messages: Annotated[list, add_messages]
+    agent_outputs: Annotated[dict, _merge_agent_outputs]
+    next_agent: str
+    next_instructions: str
+    agent_call_count: int
     reviewer_approved: bool
     revision_count: int
 
 
-# ── Graph Builder ────────────────────────────────────
+# ── Orchestrator routing schema ────────────────────────────────────────────
+
+class OrchestratorDecision(BaseModel):
+    reasoning: str
+    next_agent: str    # specialist name | "Journalist" | "END"
+    instructions: str  # specific task handed to the next agent
+
+
+# ── Shared helpers ─────────────────────────────────────────────────────────
+
+def _format_findings(agent_outputs: dict, compress: bool = False,
+                     exclude: str = None,
+                     max_chars: int = MAX_PEER_CHARS) -> str:
+    """Serialise agent_outputs into a prompt-ready string.
+
+    compress=False  → full text (orchestrator, Journalist)
+    compress=True   → each entry capped at max_chars (specialist peers)
+    """
+    if not agent_outputs:
+        return "No findings collected yet."
+    parts = []
+    for agent, output in agent_outputs.items():
+        if agent == exclude:
+            continue
+        body = (output[:max_chars] + "…") if compress and len(output) > max_chars else output
+        parts.append(f"### [{agent}]\n{body}")
+    return "\n\n".join(parts) if parts else "No findings from colleagues yet."
+
+
+def _run_tool_loop(model, tools: list, messages: list, max_rounds: int):
+    """Run the agent ↔ tools loop until the model stops calling tools.
+
+    Returns the final AIMessage response.
+    """
+    tool_executor = ToolNode(tools)
+    response = None
+    for _ in range(max_rounds):
+        response = model.invoke(messages)
+        messages = list(messages) + [response]
+        if not (hasattr(response, "tool_calls") and response.tool_calls):
+            break
+        tool_result = tool_executor.invoke({"messages": messages})
+        messages = tool_result["messages"]
+    return response
+
+
+# ── Orchestrator node (Dr. Nexus) ──────────────────────────────────────────
+
+def make_orchestrator_node(config: dict, specialist_names: list):
+    """Build the orchestrator node that routes work between specialists."""
+    nexus_cfg = get_persona_config(config, config["orchestrator"]["agent"])
+    system_prompt = build_agent_system_prompt(nexus_cfg)
+    max_calls = config["orchestrator"].get("max_agent_calls", 8)
+    valid_targets = specialist_names + ["Journalist", "END"]
+
+    def orchestrator_node(state: GraphState):
+        call_count = state.get("agent_call_count", 0)
+
+        # Safety valve — prevent runaway loops
+        if call_count >= max_calls:
+            return {
+                "next_agent": "Journalist",
+                "next_instructions": (
+                    "Synthesise all collected findings into a final structured report. "
+                    "The orchestrator has reached its maximum call count."
+                ),
+                "agent_call_count": call_count + 1,
+                "messages": [AIMessage(content=(
+                    f"[Orchestrator safety valve: {max_calls} agent calls reached. "
+                    "Routing directly to Journalist.]"
+                ))],
+            }
+
+        findings = _format_findings(state.get("agent_outputs", {}))
+
+        routing_prompt = (
+            f"RESEARCH TASK:\n{state['task']}\n\n"
+            f"FINDINGS COLLECTED SO FAR:\n{findings}\n\n"
+            f"AVAILABLE SPECIALISTS: {', '.join(specialist_names)}\n\n"
+            "Decide the next step:\n"
+            "  • Route to a specialist if more domain-specific evidence is needed.\n"
+            "  • Route to 'Journalist' when sufficient findings are ready to write the output.\n"
+            "  • Route to 'END' only after the Journalist has already produced a complete output.\n"
+            "Return your decision as structured output with: reasoning, next_agent, instructions."
+        )
+
+        model = create_model(config).with_structured_output(OrchestratorDecision)
+        decision = model.invoke([
+            SystemMessage(content=system_prompt),
+            HumanMessage(content=routing_prompt),
+        ])
+
+        # Validate routing target against allowed values
+        if decision.next_agent not in valid_targets:
+            decision.next_agent = "Journalist"
+
+        return {
+            "next_agent": decision.next_agent,
+            "next_instructions": decision.instructions,
+            "agent_call_count": call_count + 1,
+            "messages": [AIMessage(content=(
+                f"[Orchestrator → {decision.next_agent}]: {decision.reasoning}"
+            ))],
+        }
+
+    return orchestrator_node
+
+
+# ── Specialist node factory ────────────────────────────────────────────────
+
+def make_specialist_node(persona_name: str, config: dict):
+    """Return a LangGraph node function for a specialist persona.
+
+    Each specialist:
+      - Gets its own system prompt (not the full swarm prompt).
+      - Has access only to its tools listed in swarm_config.yml.
+      - Runs its own tool-use loop internally (no shared ToolNode).
+      - Stores findings in agent_outputs[persona_name].
+    """
+    persona_cfg = get_persona_config(config, persona_name)
+    tools = load_tools_for_persona(config, persona_cfg)
+    system_prompt = build_agent_system_prompt(
+        persona_cfg,
+        epistemic_tags=config.get("epistemic_tags"),
+    )
+    max_rounds = config["orchestrator"].get("max_tool_rounds_per_agent", 5)
+
+    def specialist_node(state: GraphState):
+        model = create_model(config).bind_tools(tools) if tools else create_model(config)
+
+        # Token-optimised peer context: each peer capped at MAX_PEER_CHARS
+        peer_findings = _format_findings(
+            state.get("agent_outputs", {}),
+            compress=True,
+            exclude=persona_name,
+        )
+
+        context = HumanMessage(content=(
+            f"RESEARCH TASK:\n{state['task']}\n\n"
+            f"YOUR SPECIFIC INSTRUCTIONS:\n"
+            f"{state.get('next_instructions', 'Provide your expert analysis.')}\n\n"
+            f"RELEVANT FINDINGS FROM COLLEAGUES:\n{peer_findings}"
+        ))
+
+        response = _run_tool_loop(
+            model, tools,
+            [SystemMessage(content=system_prompt), context],
+            max_rounds,
+        )
+
+        final_text = response.content if hasattr(response, "content") else str(response)
+        brief = final_text[:150] + "…" if len(final_text) > 150 else final_text
+
+        return {
+            "messages": [AIMessage(content=f"[{persona_name}]: {brief}")],
+            "agent_outputs": {persona_name: final_text},
+        }
+
+    return specialist_node
+
+
+# ── Journalist node ────────────────────────────────────────────────────────
+
+def make_journalist_node(config: dict):
+    """Journalist receives full findings and writes the structured final output."""
+    journalist_name = config["orchestrator"]["journalist"]
+    journalist_cfg = get_persona_config(config, journalist_name)
+    tools = load_tools_for_persona(config, journalist_cfg)
+    system_prompt = build_agent_system_prompt(journalist_cfg)
+    max_rounds = config["orchestrator"].get("max_tool_rounds_per_agent", 5)
+
+    def journalist_node(state: GraphState):
+        model = create_model(config).bind_tools(tools) if tools else create_model(config)
+
+        # Journalist gets full uncompressed findings
+        full_findings = _format_findings(state.get("agent_outputs", {}))
+
+        revision_note = ""
+        if state.get("revision_count", 0) > 0:
+            revision_note = (
+                f"\n\nREVISION INSTRUCTIONS FROM REVIEWER-2:\n"
+                f"{state.get('next_instructions', '')}\n"
+                "Address all reviewer feedback in this revised version."
+            )
+
+        context = HumanMessage(content=(
+            f"RESEARCH TASK:\n{state['task']}\n\n"
+            f"ALL SPECIALIST FINDINGS:\n{full_findings}"
+            f"{revision_note}\n\n"
+            "Write a complete structured output. You MUST include:\n"
+            "  • Formal in-text citations [1], [2]…\n"
+            "  • A section explicitly distinguishing high engagement from clinical impairment\n"
+            "  • A limitations section\n"
+            "  • A complete formal References section at the end\n"
+            "Save the output to disk using write_manuscript_section, "
+            "then call git_commit_snapshot."
+        ))
+
+        response = _run_tool_loop(
+            model, tools,
+            [SystemMessage(content=system_prompt), context],
+            max_rounds,
+        )
+
+        final_text = response.content if hasattr(response, "content") else str(response)
+
+        return {
+            "messages": [AIMessage(content=f"[Journalist draft — {len(final_text)} chars]")],
+            "agent_outputs": {journalist_name: final_text},
+        }
+
+    return journalist_node
+
+
+# ── Reviewer node ──────────────────────────────────────────────────────────
+
+def make_reviewer_node(config: dict):
+    """Adversarial reviewer that checks the Journalist draft against config rules."""
+    reviewer_prompt = build_reviewer_prompt(config)
+    max_revisions = config["reviewer"].get("max_revision_loops", 3)
+    journalist_name = config["orchestrator"]["journalist"]
+
+    def reviewer_node(state: GraphState):
+        revision_count = state.get("revision_count", 0)
+
+        if revision_count >= max_revisions:
+            return {
+                "reviewer_approved": True,
+                "messages": [AIMessage(content=(
+                    f"[Reviewer-2 safety valve: {max_revisions} revision loops reached. "
+                    "Force-approved.]"
+                ))],
+            }
+
+        draft = state.get("agent_outputs", {}).get(journalist_name, "")
+        if not draft:
+            return {"reviewer_approved": True}
+
+        model = create_model(config)
+        response = model.invoke([
+            SystemMessage(content=reviewer_prompt),
+            HumanMessage(content=draft),
+        ])
+
+        if response.content.strip().startswith("APPROVED"):
+            return {
+                "reviewer_approved": True,
+                "messages": [AIMessage(content="[Reviewer-2]: APPROVED")],
+            }
+
+        return {
+            "reviewer_approved": False,
+            "revision_count": revision_count + 1,
+            "next_instructions": response.content,
+            "messages": [AIMessage(content=(
+                f"[Reviewer-2 REJECTED]: {response.content[:200]}…"
+            ))],
+        }
+
+    return reviewer_node
+
+
+# ── Graph builder ──────────────────────────────────────────────────────────
+
 def build_graph(config: dict = None):
-    """Build and compile the LangGraph state machine.
+    """Build and compile the multi-agent supervisor LangGraph.
 
-    Args:
-        config: Optional pre-loaded config dict. If None, loads
-                from swarm_config.yml automatically.
-
-    Returns:
-        A compiled LangGraph that can be invoked or streamed.
+    Node registration is fully dynamic — derived from the personas listed in
+    swarm_config.yml. Adding or removing specialist agents requires only config
+    changes, not Python code changes.
     """
     if config is None:
         config = load_config()
 
-    # Load tools and reviewer settings from config
-    tools = load_tools(config)
-    max_revisions = config["reviewer"].get("max_revision_loops", 3)
     reviewer_enabled = config["reviewer"].get("enabled", True)
-    reviewer_prompt_text = build_reviewer_prompt(config)
+    orchestrator_name = config["orchestrator"]["agent"]
+    journalist_name = config["orchestrator"]["journalist"]
 
-    # ── Node: Agent ──────────────────────────────────
-    def call_model(state: GraphState):
-        """Central agent node — invokes the LLM with all bound tools."""
-        model = create_model(config)
-        model_with_tools = model.bind_tools(tools)
-        response = model_with_tools.invoke(state["messages"])
-        return {"messages": [response]}
+    specialist_names = [
+        p["name"] for p in config["personas"]
+        if p["name"] not in (orchestrator_name, journalist_name)
+    ]
 
-    # ── Node: Reviewer-2 ─────────────────────────────
-    def call_reviewer(state: GraphState):
-        """Adversarial checkpoint node.
-
-        Reads the agent's latest text output and decides:
-          - APPROVED → end the graph
-          - REJECTED → loop back to agent with feedback
-
-        Includes a safety valve: after max_revision_loops,
-        the output is force-approved to prevent infinite loops
-        and runaway API costs.
-        """
-        messages = state["messages"]
-        last_message = messages[-1]
-
-        # If the last message was a tool call, pass through
-        if hasattr(last_message, "tool_calls") and last_message.tool_calls:
-            return {"reviewer_approved": True}
-
-        # Safety valve: force-approve after N revision loops
-        revision_count = state.get("revision_count", 0)
-        if revision_count >= max_revisions:
-            return {
-                "messages": [
-                    HumanMessage(
-                        content=(
-                            f"[Reviewer-2 Safety Valve]: Maximum revision loops "
-                            f"({max_revisions}) reached. Force-approving output."
-                        )
-                    )
-                ],
-                "reviewer_approved": True,
-            }
-
-        # Invoke the reviewer LLM
-        model = create_model(config)
-        reviewer_system = SystemMessage(content=reviewer_prompt_text)
-        response = model.invoke(
-            [reviewer_system, HumanMessage(content=str(last_message.content))]
-        )
-
-        if response.content.strip().startswith("APPROVED"):
-            return {"reviewer_approved": True}
-        else:
-            return {
-                "messages": [
-                    HumanMessage(
-                        content=f"Reviewer-2 Feedback: {response.content}"
-                    )
-                ],
-                "reviewer_approved": False,
-                "revision_count": revision_count + 1,
-            }
-
-    # ── Build the State Machine ──────────────────────
     workflow = StateGraph(GraphState)
 
-    # Define nodes
-    workflow.add_node("agent", call_model)
-    workflow.add_node("tools", ToolNode(tools))
+    # ── Register nodes ──────────────────────────────────────────────────
+    workflow.add_node(
+        "orchestrator",
+        make_orchestrator_node(config, specialist_names),
+    )
+
+    for name in specialist_names:
+        workflow.add_node(name, make_specialist_node(name, config))
+
+    workflow.add_node("Journalist", make_journalist_node(config))
 
     if reviewer_enabled:
-        workflow.add_node("reviewer", call_reviewer)
+        workflow.add_node("reviewer", make_reviewer_node(config))
 
-    # ── Routing Logic ────────────────────────────────
-    def agent_router(state: GraphState):
-        """Route after agent: tool calls → tools node, text → reviewer."""
-        last_message = state["messages"][-1]
-        if hasattr(last_message, "tool_calls") and last_message.tool_calls:
-            return "tools"
+    # ── Wire edges ──────────────────────────────────────────────────────
+    workflow.add_edge(START, "orchestrator")
+
+    # Every specialist returns control to the orchestrator after finishing
+    for name in specialist_names:
+        workflow.add_edge(name, "orchestrator")
+
+    # Orchestrator routing: specialist | Journalist | END→reviewer
+    def orchestrator_router(state: GraphState) -> str:
+        target = state.get("next_agent", "END")
+        if target in specialist_names:
+            return target
+        if target == "Journalist":
+            return "Journalist"
         return "reviewer" if reviewer_enabled else END
 
-    def reviewer_router(state: GraphState):
-        """Route after reviewer: approved → END, rejected → agent."""
-        if state.get("reviewer_approved", False):
-            return END
-        return "agent"
+    routing_map = {name: name for name in specialist_names}
+    routing_map["Journalist"] = "Journalist"
+    routing_map["END"] = "reviewer" if reviewer_enabled else END
 
-    # Wire edges
-    workflow.add_edge(START, "agent")
+    workflow.add_conditional_edges("orchestrator", orchestrator_router, routing_map)
 
     if reviewer_enabled:
-        workflow.add_conditional_edges(
-            "agent",
-            agent_router,
-            {"tools": "tools", "reviewer": "reviewer"},
-        )
+        workflow.add_edge("Journalist", "reviewer")
+
+        def reviewer_router(state: GraphState) -> str:
+            return END if state.get("reviewer_approved", False) else "Journalist"
+
         workflow.add_conditional_edges(
             "reviewer",
             reviewer_router,
-            {"agent": "agent", END: END},
+            {END: END, "Journalist": "Journalist"},
         )
     else:
-        workflow.add_conditional_edges(
-            "agent",
-            agent_router,
-            {"tools": "tools", END: END},
-        )
-
-    workflow.add_edge("tools", "agent")
+        workflow.add_edge("Journalist", END)
 
     return workflow.compile()

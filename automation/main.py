@@ -15,11 +15,10 @@ from pathlib import Path
 
 import typer
 from dotenv import load_dotenv
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.messages import AIMessage
 
 from automation.config import (
     load_config,
-    build_system_prompt,
     validate_env,
 )
 from automation.graph import build_graph
@@ -62,46 +61,62 @@ def execute(prompt: str):
         raise typer.Exit(code=1)
 
     swarm_name = config["swarm"]["name"]
-    typer.secho(f"🚀 Initializing {swarm_name}...", fg=typer.colors.CYAN)
+    typer.secho(f"🚀 Initializing {swarm_name} (multi-agent mode)...", fg=typer.colors.CYAN)
 
-    # Build the graph from config
     graph = build_graph(config)
 
-    # Assemble the system prompt dynamically from config + persona files
-    system_prompt_text = build_system_prompt(config)
-    system_persona = SystemMessage(content=system_prompt_text)
-    user_request = HumanMessage(content=prompt)
+    # Initial state: task is the user prompt; all other fields start empty/default.
+    # Each agent node builds its own system prompt from its persona file — no
+    # single swarm-level prompt is injected here.
+    initial_state = {
+        "task": prompt,
+        "messages": [],
+        "agent_outputs": {},
+        "next_agent": "",
+        "next_instructions": "",
+        "agent_call_count": 0,
+        "reviewer_approved": False,
+        "revision_count": 0,
+    }
 
     try:
-        typer.secho(f"\n🧠 [THINKING] Executing graph state...", fg=typer.colors.BLUE)
+        typer.secho(f"\n🧠 [SWARM ACTIVE] Streaming agent interactions...\n", fg=typer.colors.BLUE)
 
-        for event in graph.stream(
-            {"messages": [system_persona, user_request]},
-            stream_mode="values",
-        ):
-            latest_msg = event["messages"][-1]
+        for event in graph.stream(initial_state, stream_mode="values"):
+            latest_msg = event.get("messages", [])
+            if not latest_msg:
+                continue
+            msg = latest_msg[-1]
 
-            # Print Tool Invocations
-            if hasattr(latest_msg, "tool_calls") and latest_msg.tool_calls:
-                for target_tool in latest_msg.tool_calls:
+            if not hasattr(msg, "content") or not msg.content:
+                continue
+
+            content = str(msg.content)
+
+            # Routing / orchestrator messages
+            if content.startswith("[Orchestrator"):
+                typer.secho(f"  ↳ {content}", fg=typer.colors.CYAN)
+
+            # Specialist / journalist findings (brief audit entry)
+            elif content.startswith("[") and "]: " in content:
+                typer.secho(f"  {content}", fg=typer.colors.GREEN)
+
+            # Reviewer decisions
+            elif content.startswith("[Reviewer"):
+                colour = typer.colors.GREEN if "APPROVED" in content else typer.colors.RED
+                typer.secho(f"  {content}", fg=colour)
+
+            # Tool invocations surfaced via AIMessage tool_calls
+            elif hasattr(msg, "tool_calls") and msg.tool_calls:
+                for tc in msg.tool_calls:
                     typer.secho(
-                        f"🔧 [TOOL INVOKED]: {target_tool['name']} -> {target_tool['args']}",
+                        f"    🔧 {tc['name']} ← {list(tc['args'].keys())}",
                         fg=typer.colors.YELLOW,
                     )
-            # Print Agent Output text
-            elif hasattr(latest_msg, "content") and latest_msg.content:
-                if isinstance(latest_msg, (HumanMessage, SystemMessage)):
-                    continue
-                typer.echo(f"\n🤖 [AGENT OUTPUT]:\n{latest_msg.content}\n")
 
-        typer.secho("✅ Task Execution Complete.", fg=typer.colors.GREEN)
-
-        # Remind the user where to find outputs
+        typer.secho("\n✅ Task complete.", fg=typer.colors.GREEN)
         output_dir = config["swarm"].get("output_dir", "./Drafts")
-        typer.secho(
-            f"📂 Check '{output_dir}/' for generated files.",
-            fg=typer.colors.CYAN,
-        )
+        typer.secho(f"📂 Outputs saved to '{output_dir}/'", fg=typer.colors.CYAN)
 
     except Exception as e:
         typer.secho(f"Execution Error: {e}", fg=typer.colors.RED)
@@ -208,6 +223,12 @@ def info():
     typer.secho(f"\n🔧 Tools registered: {len(config['tools'])}")
     for name, spec in config["tools"].items():
         typer.secho(f"   • {name}: {spec.get('description', spec['function'])}")
+
+    orch = config.get("orchestrator", {})
+    typer.secho(f"\n🎯 Orchestrator: {orch.get('agent', 'Dr. Nexus')} "
+                f"(journalist: {orch.get('journalist', 'Journalist')}, "
+                f"max_agent_calls: {orch.get('max_agent_calls', 8)}, "
+                f"max_tool_rounds: {orch.get('max_tool_rounds_per_agent', 5)})")
 
     reviewer = config["reviewer"]
     r_status = "✅ Enabled" if reviewer.get("enabled", True) else "❌ Disabled"
