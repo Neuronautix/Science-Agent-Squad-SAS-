@@ -9,6 +9,8 @@ agents/
     │   └── KB/     <-- Drop PDFs, MDs, or Text files here
     ├── EpiScope/   (Prevalence, psychometrics, risk factors)
     │   └── KB/     <-- Drop PDFs, MDs, or Text files here
+    ├── LitScout/   (Citation maps, shared bibliographies, landmark paper notes)
+    │   └── KB/     <-- Drop review papers, reference maps, or curated reading lists here
     ├── NeuroCogs/  (Mechanisms, executive function, neuroimaging)
     │   └── KB/     <-- Drop PDFs, MDs, or Text files here
     ├── CarePath/   (Prevention, treatment, care models)
@@ -21,6 +23,7 @@ agents/
 1.  **Identify the Topic**:
     -   Is it about *diagnosis, impairment, or comorbidity*? -> **ClinicalPsych**.
     -   Is it about *prevalence, scales, or risk/protective factors*? -> **EpiScope**.
+    -   Is it about *landmark papers, citation trails, or author networks*? -> **LitScout**.
     -   Is it about *executive function, reward, or neuroimaging*? -> **NeuroCogs**.
     -   Is it about *prevention, CBT, pharmacotherapy, or school/family programs*? -> **CarePath**.
 2.  **Add the File**:

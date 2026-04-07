@@ -75,6 +75,17 @@ personas:
       - you_research
       - lookup_doi
 
+  - name: "LitScout"
+    icon: "📚"
+    role: "Scientific literature cartographer for citation chaining and author-trail expansion"
+    persona_file: "./agents/LitScout/persona.md"
+    tools:
+      - search_literature
+      - search_preprints
+      - trace_literature_network
+      - lookup_doi
+      - scrape_page
+
   - name: "NeuroCogs"
     icon: "🧪"
     role: "Mechanisms and neurocognition specialist"
@@ -154,6 +165,11 @@ tools:
     module: "automation.tools"
     function: "search_semantic_scholar"
     description: "Search Semantic Scholar for preprints, CHI papers, and recent publications not yet on PubMed"
+
+  trace_literature_network:
+    module: "automation.tools"
+    function: "trace_literature_network"
+    description: "Expand a major paper through its references and lead authors to surface adjacent literature"
 
   you_research:
     module: "automation.tools"

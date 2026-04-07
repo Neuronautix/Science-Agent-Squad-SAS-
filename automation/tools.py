@@ -12,6 +12,7 @@ To add a custom tool:
 Built-in Tools:
   - search_pubmed              : Search PubMed and return full title + abstract
   - search_semantic_scholar    : Search Semantic Scholar (indexes preprints + journals)
+    - trace_literature_network   : Expand from a seed paper via references + lead authors
   - check_schema_org           : Validate terms against Schema.org vocabulary
   - write_manuscript_section   : Write a Markdown section to the Drafts/ directory
   - search_you_engine          : Search the live web via You.com API
@@ -22,6 +23,7 @@ Built-in Tools:
 """
 
 import os
+import re
 import subprocess
 from pathlib import Path
 import requests
@@ -33,6 +35,110 @@ from langchain_core.tools import tool
 # ═══════════════════════════════════════════════════════
 # RESEARCH TOOLS (Domain-Specific — swap these per domain)
 # ═══════════════════════════════════════════════════════
+
+SEMANTIC_SCHOLAR_HEADERS = {
+    "User-Agent": "PIU-Psych-Swarm/1.0 (Academic Research)",
+}
+
+TOPIC_STOPWORDS = {
+    "about", "among", "analysis", "article", "articles", "association", "associations",
+    "between", "effect", "effects", "from", "have", "into", "paper", "papers",
+    "research", "review", "study", "studies", "than", "that", "their", "there",
+    "these", "this", "those", "under", "used", "using", "were", "where", "while",
+    "which", "with", "without",
+}
+
+
+def _semantic_scholar_get(endpoint: str, params: dict) -> dict:
+    resp = requests.get(
+        f"https://api.semanticscholar.org{endpoint}",
+        params=params,
+        headers=SEMANTIC_SCHOLAR_HEADERS,
+        timeout=20,
+    )
+    resp.raise_for_status()
+    return resp.json()
+
+
+def _safe_int(value) -> int:
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _normalise_topic_tokens(text: str) -> set[str]:
+    tokens = re.findall(r"[a-z0-9]+", (text or "").lower())
+    return {
+        token for token in tokens
+        if len(token) >= 4 and token not in TOPIC_STOPWORDS and not token.isdigit()
+    }
+
+
+def _format_authors(authors: list, limit: int = 3) -> str:
+    names = [author.get("name", "") for author in authors[:limit] if author.get("name")]
+    if not names:
+        return "Unknown authors"
+    if len(authors) > limit:
+        names.append("et al.")
+    return ", ".join(names)
+
+
+def _paper_identifier(paper: dict) -> str:
+    ext_ids = paper.get("externalIds", {}) or {}
+    doi = ext_ids.get("DOI", "")
+    if doi:
+        return f"DOI: {doi}"
+    paper_id = paper.get("paperId", "")
+    return f"Semantic Scholar ID: {paper_id}" if paper_id else "Identifier unavailable"
+
+
+def _paper_url(paper: dict) -> str:
+    url = paper.get("url", "")
+    if url:
+        return url
+    doi = (paper.get("externalIds", {}) or {}).get("DOI", "")
+    return f"https://doi.org/{doi}" if doi else ""
+
+
+def _paper_relevance_score(paper: dict, topic_tokens: set[str]) -> int:
+    title_tokens = _normalise_topic_tokens(paper.get("title", ""))
+    overlap = len(topic_tokens & title_tokens)
+    citation_count = _safe_int(paper.get("citationCount"))
+    return overlap * 1000 + citation_count
+
+
+def _select_seed_paper(candidates: list[dict], seed_query: str) -> dict | None:
+    if not candidates:
+        return None
+
+    clean_query = seed_query.strip().lower().removeprefix("https://doi.org/").removeprefix("doi.org/")
+    if clean_query.startswith("10."):
+        for paper in candidates:
+            doi = ((paper.get("externalIds", {}) or {}).get("DOI", "")).lower()
+            if doi == clean_query:
+                return paper
+
+    query_tokens = _normalise_topic_tokens(seed_query)
+    ranked = sorted(
+        candidates,
+        key=lambda paper: (
+            _paper_relevance_score(paper, query_tokens),
+            _safe_int(paper.get("year")),
+        ),
+        reverse=True,
+    )
+    return ranked[0]
+
+
+def _author_paper_items(payload: dict) -> list[dict]:
+    papers = []
+    for item in payload.get("data", []):
+        if isinstance(item, dict) and "paper" in item and isinstance(item["paper"], dict):
+            papers.append(item["paper"])
+        elif isinstance(item, dict):
+            papers.append(item)
+    return papers
 
 
 @tool
@@ -207,6 +313,197 @@ def search_semantic_scholar(query: str, max_results: int = 5) -> str:
         return f"Semantic Scholar HTTP error: {e}"
     except Exception as e:
         return f"Error querying Semantic Scholar: {e}"
+
+
+@tool
+def trace_literature_network(
+    seed_query: str,
+    topic_query: str = "",
+    max_references: int = 8,
+    max_author_papers: int = 6,
+) -> str:
+    """Resolve a sentinel paper, inspect its cited references, and expand via lead authors.
+
+    Use this after you identify a major review, meta-analysis, or high-impact article.
+    The tool returns two expansion paths: cited references from the seed paper,
+    and adjacent papers by the seed paper's first and last authors.
+    """
+    try:
+        search_payload = _semantic_scholar_get(
+            "/graph/v1/paper/search",
+            {
+                "query": seed_query,
+                "limit": 5,
+                "fields": "paperId,title,year,venue,authors,abstract,externalIds,url,citationCount",
+            },
+        )
+        seed_paper = _select_seed_paper(search_payload.get("data", []), seed_query)
+        if not seed_paper:
+            return (
+                f"No Semantic Scholar seed paper found for '{seed_query}'. "
+                "Try a DOI, a more exact title, or a narrower query."
+            )
+
+        seed_detail = _semantic_scholar_get(
+            f"/graph/v1/paper/{seed_paper['paperId']}",
+            {
+                "fields": (
+                    "paperId,title,year,venue,authors,abstract,externalIds,url,"
+                    "citationCount,referenceCount,"
+                    "references.paperId,references.title,references.year,references.venue,"
+                    "references.authors,references.externalIds,references.url,references.citationCount"
+                )
+            },
+        )
+
+        topic_basis = topic_query or seed_detail.get("title", "") or seed_query
+        topic_tokens = _normalise_topic_tokens(topic_basis)
+        seed_title = seed_detail.get("title", "No title")
+        seed_authors = seed_detail.get("authors", [])
+
+        references = [
+            ref for ref in seed_detail.get("references", [])
+            if isinstance(ref, dict) and ref.get("title")
+        ]
+        ranked_references = sorted(
+            references,
+            key=lambda ref: (_paper_relevance_score(ref, topic_tokens), _safe_int(ref.get("year"))),
+            reverse=True,
+        )
+        top_references = ranked_references[:max(1, max_references)]
+
+        if topic_tokens and top_references:
+            any_topic_overlap = any(
+                _normalise_topic_tokens(ref.get("title", "")) & topic_tokens
+                for ref in top_references
+            )
+            if not any_topic_overlap:
+                top_references = sorted(
+                    references,
+                    key=lambda ref: (_safe_int(ref.get("citationCount")), _safe_int(ref.get("year"))),
+                    reverse=True,
+                )[:max(1, max_references)]
+
+        lead_authors = []
+        if seed_authors:
+            lead_authors.append(seed_authors[0])
+            if len(seed_authors) > 1:
+                lead_authors.append(seed_authors[-1])
+
+        unique_leads = []
+        seen_author_ids = set()
+        for author in lead_authors:
+            author_id = author.get("authorId")
+            if not author_id or author_id in seen_author_ids:
+                continue
+            seen_author_ids.add(author_id)
+            unique_leads.append(author)
+
+        author_candidates = []
+        seen_papers = {seed_detail.get("paperId", "")}
+        seen_titles = {seed_title.strip().lower()}
+        for ref in top_references:
+            if ref.get("paperId"):
+                seen_papers.add(ref["paperId"])
+            seen_titles.add(ref.get("title", "").strip().lower())
+
+        for author in unique_leads:
+            author_name = author.get("name", "Unknown author")
+            try:
+                author_payload = _semantic_scholar_get(
+                    f"/graph/v1/author/{author['authorId']}/papers",
+                    {
+                        "limit": min(max_author_papers * 4, 20),
+                        "fields": "paperId,title,year,venue,authors,externalIds,url,citationCount",
+                    },
+                )
+            except requests.exceptions.HTTPError as e:
+                author_candidates.append({
+                    "author_name": author_name,
+                    "error": f"Semantic Scholar HTTP error while expanding author trail: {e}",
+                })
+                continue
+
+            for paper in _author_paper_items(author_payload):
+                paper_id = paper.get("paperId", "")
+                title = paper.get("title", "").strip()
+                title_key = title.lower()
+                if not title or paper_id in seen_papers or title_key in seen_titles:
+                    continue
+
+                overlap = len(topic_tokens & _normalise_topic_tokens(title))
+                citation_count = _safe_int(paper.get("citationCount"))
+                if topic_tokens and overlap == 0 and citation_count < 20:
+                    continue
+
+                seen_papers.add(paper_id)
+                seen_titles.add(title_key)
+                author_candidates.append({
+                    "author_name": author_name,
+                    "paper": paper,
+                    "score": overlap * 1000 + citation_count,
+                })
+
+        ranked_author_papers = sorted(
+            [item for item in author_candidates if "paper" in item],
+            key=lambda item: (item["score"], _safe_int(item["paper"].get("year"))),
+            reverse=True,
+        )[:max(1, max_author_papers)]
+
+        reference_lines = []
+        for index, ref in enumerate(top_references, 1):
+            ref_url = _paper_url(ref)
+            reference_lines.append(
+                f"{index}. {ref.get('title', 'No title')}\n"
+                f"   Authors: {_format_authors(ref.get('authors', []))}\n"
+                f"   Year/Venue: {ref.get('year', 'n.d.')} | {ref.get('venue', '')}\n"
+                f"   Citations: {_safe_int(ref.get('citationCount'))} | {_paper_identifier(ref)}\n"
+                + (f"   URL: {ref_url}" if ref_url else "")
+            )
+
+        author_lines = []
+        for index, item in enumerate(ranked_author_papers, 1):
+            paper = item["paper"]
+            paper_url = _paper_url(paper)
+            author_lines.append(
+                f"{index}. {paper.get('title', 'No title')}\n"
+                f"   Via lead author: {item['author_name']}\n"
+                f"   Authors: {_format_authors(paper.get('authors', []))}\n"
+                f"   Year/Venue: {paper.get('year', 'n.d.')} | {paper.get('venue', '')}\n"
+                f"   Citations: {_safe_int(paper.get('citationCount'))} | {_paper_identifier(paper)}\n"
+                + (f"   URL: {paper_url}" if paper_url else "")
+            )
+
+        if not author_lines:
+            author_lines.append(
+                "No additional lead-author papers met the topic filter. "
+                "Retry with a broader topic_query or inspect the seed article directly."
+            )
+
+        seed_url = _paper_url(seed_detail)
+        return (
+            f"Seed article chosen from Semantic Scholar:\n"
+            f"Title: {seed_title}\n"
+            f"Authors: {_format_authors(seed_authors)}\n"
+            f"Year/Venue: {seed_detail.get('year', 'n.d.')} | {seed_detail.get('venue', '')}\n"
+            f"Citations: {_safe_int(seed_detail.get('citationCount'))} | {_paper_identifier(seed_detail)}\n"
+            + (f"URL: {seed_url}\n" if seed_url else "")
+            + "\nReference trail from the seed article:\n"
+            + "\n\n".join(reference_lines if reference_lines else ["No references were returned for the seed article."])
+            + "\n\nLead-author expansion:\n"
+            + "\n\n".join(author_lines)
+            + "\n\nUse lookup_doi on the strongest candidates when you need richer citation metadata or DOI confirmation."
+        )
+
+    except requests.exceptions.HTTPError as e:
+        if e.response is not None and e.response.status_code == 429:
+            return (
+                "Semantic Scholar rate limit hit during literature-network tracing. "
+                "Retry shortly, or fall back to search_pubmed + lookup_doi."
+            )
+        return f"Semantic Scholar HTTP error while tracing literature network: {e}"
+    except Exception as e:
+        return f"Error tracing literature network for '{seed_query}': {e}"
 
 
 @tool

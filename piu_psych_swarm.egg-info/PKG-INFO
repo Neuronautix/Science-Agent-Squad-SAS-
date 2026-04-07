@@ -1,3 +1,34 @@
+Metadata-Version: 2.4
+Name: piu-psych-swarm
+Version: 0.2.0
+Summary: A configurable multi-agent research swarm for psychiatric study of problematic internet use
+Author-email: Damien Huzard <dhuzard@users.noreply.github.com>
+License: MIT
+Requires-Python: >=3.10
+Description-Content-Type: text/markdown
+Requires-Dist: langchain>=0.3
+Requires-Dist: langchain-openai>=0.3
+Requires-Dist: langchain-core>=0.3
+Requires-Dist: langchain-community>=0.3
+Requires-Dist: langgraph>=0.2
+Requires-Dist: chromadb>=0.5
+Requires-Dist: typer>=0.12
+Requires-Dist: sentence-transformers>=3.0
+Requires-Dist: pypdf>=4.0
+Requires-Dist: python-dotenv>=1.0
+Requires-Dist: rich>=13.0
+Requires-Dist: pyyaml>=6.0
+Requires-Dist: jinja2>=3.1
+Requires-Dist: requests>=2.31
+Requires-Dist: beautifulsoup4>=4.12
+Provides-Extra: anthropic
+Requires-Dist: langchain-anthropic>=0.3; extra == "anthropic"
+Provides-Extra: google
+Requires-Dist: langchain-google-genai>=2.0; extra == "google"
+Provides-Extra: dev
+Requires-Dist: pytest>=8.0; extra == "dev"
+Requires-Dist: ruff>=0.4; extra == "dev"
+
 # PIU Psych Swarm
 
 A configurable multi-agent framework for psychiatric research on problematic internet use.
@@ -62,7 +93,6 @@ if (-not (Test-Path .env)) { Copy-Item .env.example .env }
 | Dr. Nexus | 👑 | Orchestrator | Coordination, synthesis, and reference management |
 | ClinicalPsych | 🧠 | Clinical specialist | Diagnosis, impairment, and comorbidity |
 | EpiScope | 📊 | Epidemiology specialist | Prevalence, psychometrics, risk and protective factors |
-| LitScout | 📚 | Literature specialist | Citation chaining, reference mining, and author-trail expansion |
 | NeuroCogs | 🧪 | Mechanisms specialist | Reward, executive control, neurocognition, imaging |
 | CarePath | 🛟 | Intervention specialist | Prevention, treatment, and care pathways |
 | Journalist | ✍️ | Scribe | Neutral, professional documentation and reporting |
@@ -87,7 +117,6 @@ Useful working files:
 | Tool | Purpose |
 | :--- | :--- |
 | search_pubmed | Search peer-reviewed biomedical and psychiatric literature |
-| trace_literature_network | Expand a major paper via its references and lead authors |
 | search_you_engine | Search the live web |
 | search_knowledge_base | Search local PIU literature packets in agents/*/KB/ |
 | scrape_webpage | Pull full-text content from URLs |
