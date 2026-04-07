@@ -275,6 +275,20 @@ def create_reviewer_model(config: dict) -> Any:
     return create_model(reviewer_config)
 
 
+def get_hitl_config(config: dict) -> dict:
+    """Return the HITL configuration block, with safe defaults.
+
+    When hitl.enabled is false (or the section is absent), returns a dict
+    that disables all checkpoints so node factories can branch on it without
+    needing to guard against missing keys.
+    """
+    hitl = config.get("hitl", {})
+    return {
+        "enabled": hitl.get("enabled", False),
+        "checkpoints": hitl.get("checkpoints", []),
+    }
+
+
 def validate_env(config: dict) -> list[str]:
     """Validate that required environment variables are present.
 

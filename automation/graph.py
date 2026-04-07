@@ -36,6 +36,18 @@ Per-agent instructions
   each with a per-agent instruction string. When the orchestrator dispatches
   multiple specialists in parallel, each receives differentiated guidance.
   A shared `instructions` field is kept as the single-agent fallback.
+
+Human-in-the-Loop (HITL)
+-------------------------
+  When hitl.enabled = true in swarm_config.yml, the graph is compiled with a
+  MemorySaver checkpointer and interrupt() is called at configured checkpoints:
+
+    post_plan      — after the orchestrator's first routing decision
+    pre_journalist — before the Journalist node (final framing chance)
+    on_rejection   — when Reviewer-2 rejects (REVISE / OVERRIDE / custom)
+
+  The caller (main.py) detects the __interrupt__ event in the stream, prompts
+  the user, and resumes with Command(resume=answer).
 """
 
 from typing import Annotated, TypedDict
@@ -43,7 +55,7 @@ from typing import Annotated, TypedDict
 from pydantic import BaseModel
 from langgraph.graph import StateGraph, END, START
 from langgraph.graph.message import add_messages
-from langgraph.types import Send
+from langgraph.types import Send, interrupt, Command  # noqa: F401 (Command re-exported for main.py)
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 from langgraph.prebuilt import ToolNode
 
@@ -55,6 +67,7 @@ from automation.config import (
     get_persona_config,
     load_tools_for_persona,
     build_agent_system_prompt,
+    get_hitl_config,
 )
 
 # Characters retained from each peer agent's output when shown to another
@@ -139,10 +152,9 @@ def _format_findings(agent_outputs: dict, compress: bool = False,
 def _extract_token_usage(response) -> dict:
     """Extract token counts from a model response.
 
-    Tries usage_metadata (LangChain ≥ 0.2) first, then response_metadata
-    (older path). Returns zero-valued dict if neither is available.
+    Tries usage_metadata (LangChain ≥ 0.2) first, then response_metadata.
+    Returns zero-valued dict if neither is available.
     """
-    # LangChain ≥ 0.2: usage_metadata attribute
     um = getattr(response, "usage_metadata", None)
     if um:
         return {
@@ -150,7 +162,6 @@ def _extract_token_usage(response) -> dict:
             "output_tokens": um.get("output_tokens", 0),
             "total_tokens": um.get("total_tokens", 0),
         }
-    # Older path: response_metadata.token_usage (OpenAI)
     meta = getattr(response, "response_metadata", {}) or {}
     usage = meta.get("token_usage", {})
     return {
@@ -162,10 +173,6 @@ def _extract_token_usage(response) -> dict:
 
 def _run_tool_loop(model, tools: list, messages: list, max_rounds: int):
     """Run the agent ↔ tools loop until the model stops calling tools.
-
-    Correctly extends the message list on each round so that the full
-    conversation context (system prompt, task, prior tool exchanges) is
-    preserved across iterations.
 
     Returns (final_response, accumulated_token_usage).
     """
@@ -187,16 +194,22 @@ def _run_tool_loop(model, tools: list, messages: list, max_rounds: int):
 
 # ── Orchestrator node (Dr. Nexus) ──────────────────────────────────────────
 
-def make_orchestrator_node(config: dict, specialist_names: list, routing_model):
+def make_orchestrator_node(config: dict, specialist_names: list, routing_model,
+                           hitl_cfg: dict):
     """Build the orchestrator node that routes work between specialists.
 
-    routing_model is the pre-bound model with structured output — created once
-    in build_graph() to avoid re-instantiating the LLM client on every call.
+    HITL checkpoints active here:
+      post_plan      — pause after the first routing plan for user approval/redirect
+      pre_journalist — pause before routing to Journalist for final framing
     """
     nexus_cfg = get_persona_config(config, config["orchestrator"]["agent"])
     system_prompt = build_agent_system_prompt(nexus_cfg)
     max_calls = config["orchestrator"].get("max_agent_calls", 8)
     valid_targets = set(specialist_names) | {"Journalist", "END"}
+    specialist_set = set(specialist_names)
+
+    hitl_on = hitl_cfg.get("enabled", False)
+    hitl_checkpoints = set(hitl_cfg.get("checkpoints", []))
 
     def orchestrator_node(state: GraphState):
         call_count = state.get("agent_call_count", 0)
@@ -220,8 +233,7 @@ def make_orchestrator_node(config: dict, specialist_names: list, routing_model):
         findings = _format_findings(state.get("agent_outputs", {}))
         consulted_note = (
             f"SPECIALISTS ALREADY CONSULTED: {', '.join(already_consulted)}"
-            if already_consulted else
-            "No specialists consulted yet."
+            if already_consulted else "No specialists consulted yet."
         )
 
         routing_prompt = (
@@ -233,7 +245,7 @@ def make_orchestrator_node(config: dict, specialist_names: list, routing_model):
             "  • Route to one specialist for sequential deep investigation.\n"
             "  • Route to TWO OR MORE specialists simultaneously for independent sub-questions.\n"
             "    When routing multiple specialists, populate `assignments` with a specific\n"
-            "    `instructions` string for EACH agent (they won't see each other's brief).\n"
+            "    `instructions` string for EACH agent.\n"
             "  • Route to ['Journalist'] when sufficient evidence is ready to write.\n"
             "  • Route to ['END'] only after the Journalist has already produced output.\n"
             "  • Do NOT re-route to a specialist already in ALREADY CONSULTED unless a\n"
@@ -252,18 +264,59 @@ def make_orchestrator_node(config: dict, specialist_names: list, routing_model):
         if not valid_next:
             valid_next = ["Journalist"]
 
-        specialist_dispatches = [t for t in valid_next if t in set(specialist_names)]
-
-        # Build per-agent assignment lookup from the structured output
+        specialist_dispatches = [t for t in valid_next if t in specialist_set]
         assignments_dict = {
             a.agent: a.instructions
             for a in (decision.assignments or [])
             if a.agent in valid_targets
         }
 
+        # ── HITL: post_plan ───────────────────────────────────────────────
+        # Pause on the *first* orchestrator call to let the user approve or
+        # redirect before any specialist work begins.
+        if hitl_on and "post_plan" in hitl_checkpoints and call_count == 0:
+            answer = interrupt({
+                "checkpoint": "post_plan",
+                "question": (
+                    f"Orchestrator's routing plan:\n"
+                    f"  Agents selected : {valid_next}\n"
+                    f"  Reasoning       : {decision.reasoning}\n\n"
+                    "Type APPROVE to proceed, or enter alternative agent names / "
+                    "redirect instructions to override:"
+                ),
+                "default": "APPROVE",
+            })
+            answer = (answer or "APPROVE").strip()
+            if answer.upper() != "APPROVE" and answer:
+                # Try to match known agent names in the user's reply
+                override_agents = [
+                    a for a in list(specialist_set) + ["Journalist", "END"]
+                    if a.lower() in answer.lower()
+                ]
+                if override_agents:
+                    valid_next = override_agents
+                    specialist_dispatches = [t for t in valid_next if t in specialist_set]
+                    assignments_dict = {}
+
+        # ── HITL: pre_journalist ──────────────────────────────────────────
+        # Let the user add final framing constraints before the Journalist writes.
+        final_instructions = decision.instructions
+        if hitl_on and "pre_journalist" in hitl_checkpoints and "Journalist" in valid_next:
+            answer = interrupt({
+                "checkpoint": "pre_journalist",
+                "question": (
+                    "The swarm is ready to write the final report.\n\n"
+                    "Specialist findings are in. Add final framing instructions\n"
+                    "(audience, length, emphasis), or press Enter to continue:"
+                ),
+                "default": "",
+            })
+            if answer and answer.strip():
+                final_instructions = decision.instructions + "\n\nUSER FRAMING: " + answer.strip()
+
         return {
             "next_agents": valid_next,
-            "next_instructions": decision.instructions,
+            "next_instructions": final_instructions,
             "agent_assignments": assignments_dict,
             "agent_call_count": call_count + len(specialist_dispatches),
             "messages": [AIMessage(content=(
@@ -278,12 +331,7 @@ def make_orchestrator_node(config: dict, specialist_names: list, routing_model):
 # ── Specialist node factory ────────────────────────────────────────────────
 
 def make_specialist_node(persona_name: str, config: dict, model, tools: list):
-    """Return a LangGraph node function for a specialist persona.
-
-    model and tools are pre-built in build_graph() — not reconstructed per call.
-    Per-agent instructions from the orchestrator are resolved from
-    state['agent_assignments'] before falling back to state['next_instructions'].
-    """
+    """Return a LangGraph node function for a specialist persona."""
     persona_cfg = get_persona_config(config, persona_name)
     system_prompt = build_agent_system_prompt(
         persona_cfg,
@@ -292,31 +340,26 @@ def make_specialist_node(persona_name: str, config: dict, model, tools: list):
     max_rounds = config["orchestrator"].get("max_tool_rounds_per_agent", 5)
 
     def specialist_node(state: GraphState):
-        # Per-agent instructions take priority over the shared fallback
         agent_instructions = (
             state.get("agent_assignments", {}).get(persona_name)
             or state.get("next_instructions")
             or "Provide your expert analysis."
         )
-
         peer_findings = _format_findings(
             state.get("agent_outputs", {}),
             compress=True,
             exclude=persona_name,
         )
-
         context = HumanMessage(content=(
             f"RESEARCH TASK:\n{state['task']}\n\n"
             f"YOUR SPECIFIC INSTRUCTIONS:\n{agent_instructions}\n\n"
             f"RELEVANT FINDINGS FROM COLLEAGUES:\n{peer_findings}"
         ))
-
         response, usage = _run_tool_loop(
             model, tools,
             [SystemMessage(content=system_prompt), context],
             max_rounds,
         )
-
         final_text = response.content if hasattr(response, "content") else str(response)
         brief = final_text[:150] + "…" if len(final_text) > 150 else final_text
 
@@ -340,7 +383,6 @@ def make_journalist_node(config: dict, model, tools: list):
 
     def journalist_node(state: GraphState):
         full_findings = _format_findings(state.get("agent_outputs", {}))
-
         revision_note = ""
         if state.get("revision_count", 0) > 0:
             revision_note = (
@@ -348,7 +390,6 @@ def make_journalist_node(config: dict, model, tools: list):
                 f"{state.get('next_instructions', '')}\n"
                 "Address all reviewer feedback in this revised version."
             )
-
         context = HumanMessage(content=(
             f"RESEARCH TASK:\n{state['task']}\n\n"
             f"ALL SPECIALIST FINDINGS:\n{full_findings}"
@@ -361,15 +402,12 @@ def make_journalist_node(config: dict, model, tools: list):
             "Save the output to disk using write_manuscript_section, "
             "then call git_commit_snapshot."
         ))
-
         response, usage = _run_tool_loop(
             model, tools,
             [SystemMessage(content=system_prompt), context],
             max_rounds,
         )
-
         final_text = response.content if hasattr(response, "content") else str(response)
-
         return {
             "messages": [AIMessage(content=f"[Journalist draft — {len(final_text)} chars]")],
             "agent_outputs": {journalist_name: final_text},
@@ -381,11 +419,19 @@ def make_journalist_node(config: dict, model, tools: list):
 
 # ── Reviewer node ──────────────────────────────────────────────────────────
 
-def make_reviewer_node(config: dict, reviewer_model):
-    """Adversarial reviewer — uses a separate model config for genuine diversity."""
+def make_reviewer_node(config: dict, reviewer_model, hitl_cfg: dict):
+    """Adversarial reviewer.
+
+    HITL checkpoint active here:
+      on_rejection — pause when the draft is rejected so the user can choose
+                     REVISE (default) / OVERRIDE / custom revision instructions.
+    """
     reviewer_prompt = build_reviewer_prompt(config)
     max_revisions = config["reviewer"].get("max_revision_loops", 3)
     journalist_name = config["orchestrator"]["journalist"]
+
+    hitl_on = hitl_cfg.get("enabled", False)
+    hitl_checkpoints = set(hitl_cfg.get("checkpoints", []))
 
     def reviewer_node(state: GraphState):
         revision_count = state.get("revision_count", 0)
@@ -417,12 +463,43 @@ def make_reviewer_node(config: dict, reviewer_model):
                 "token_usage": usage,
             }
 
+        # Draft was rejected.
+        reviewer_feedback = response.content
+
+        # ── HITL: on_rejection ────────────────────────────────────────────
+        if hitl_on and "on_rejection" in hitl_checkpoints:
+            answer = interrupt({
+                "checkpoint": "on_rejection",
+                "question": (
+                    f"Reviewer-2 REJECTED the draft.\n\n"
+                    f"Reasons:\n{response.content[:500]}\n\n"
+                    "Options:\n"
+                    "  REVISE   — send back to Journalist with reviewer feedback (default)\n"
+                    "  OVERRIDE — force-approve this draft and end the run\n"
+                    "  Or type your own revision instructions for the Journalist:"
+                ),
+                "default": "REVISE",
+            })
+            answer = (answer or "REVISE").strip()
+
+            if answer.upper() == "OVERRIDE":
+                return {
+                    "reviewer_approved": True,
+                    "messages": [AIMessage(content=(
+                        "[Reviewer-2]: OVERRIDE by user — force-approved."
+                    ))],
+                    "token_usage": usage,
+                }
+            elif answer.upper() != "REVISE" and answer:
+                # User provided custom revision instructions
+                reviewer_feedback = answer
+
         return {
             "reviewer_approved": False,
             "revision_count": revision_count + 1,
-            "next_instructions": response.content,
+            "next_instructions": reviewer_feedback,
             "messages": [AIMessage(content=(
-                f"[Reviewer-2 REJECTED]: {response.content[:200]}…"
+                f"[Reviewer-2 REJECTED]: {reviewer_feedback[:200]}…"
             ))],
             "token_usage": usage,
         }
@@ -435,11 +512,13 @@ def make_reviewer_node(config: dict, reviewer_model):
 def build_graph(config: dict = None):
     """Build and compile the multi-agent supervisor LangGraph.
 
+    When hitl.enabled = true in swarm_config.yml, the graph is compiled with a
+    MemorySaver checkpointer so that interrupt() can pause execution and resume
+    after the user responds. When HITL is disabled, no checkpointer is used
+    and behaviour is identical to the fully autonomous mode.
+
     All LLM model instances are created once here and closed over in node
     closures, eliminating repeated client instantiation during execution.
-
-    Node registration is fully dynamic — derived from the personas listed in
-    swarm_config.yml. Adding or removing specialists requires only config changes.
     """
     if config is None:
         config = load_config()
@@ -447,6 +526,7 @@ def build_graph(config: dict = None):
     reviewer_enabled = config["reviewer"].get("enabled", True)
     orchestrator_name = config["orchestrator"]["agent"]
     journalist_name = config["orchestrator"]["journalist"]
+    hitl_cfg = get_hitl_config(config)
 
     specialist_names = [
         p["name"] for p in config["personas"]
@@ -454,10 +534,8 @@ def build_graph(config: dict = None):
     ]
 
     # ── Build models once ────────────────────────────────────────────────
-    # base_model: shared base (not yet bound to tools)
     base_model = create_model(config)
     reviewer_model_inst = create_reviewer_model(config)
-    # Orchestrator uses structured output — bind once at build time
     orchestrator_routing_model = base_model.with_structured_output(OrchestratorDecision)
 
     workflow = StateGraph(GraphState)
@@ -465,7 +543,7 @@ def build_graph(config: dict = None):
     # ── Register orchestrator ────────────────────────────────────────────
     workflow.add_node(
         "orchestrator",
-        make_orchestrator_node(config, specialist_names, orchestrator_routing_model),
+        make_orchestrator_node(config, specialist_names, orchestrator_routing_model, hitl_cfg),
     )
 
     # ── Register specialists (each with pre-bound tool set) ──────────────
@@ -483,7 +561,7 @@ def build_graph(config: dict = None):
 
     # ── Register reviewer ────────────────────────────────────────────────
     if reviewer_enabled:
-        workflow.add_node("reviewer", make_reviewer_node(config, reviewer_model_inst))
+        workflow.add_node("reviewer", make_reviewer_node(config, reviewer_model_inst, hitl_cfg))
 
     # ── Wire edges ──────────────────────────────────────────────────────
     workflow.add_edge(START, "orchestrator")
@@ -496,7 +574,6 @@ def build_graph(config: dict = None):
     def orchestrator_router(state: GraphState):
         targets = state.get("next_agents", ["END"])
         specialist_targets = [t for t in targets if t in specialist_set]
-
         if len(specialist_targets) > 1:
             return [Send(name, state) for name in specialist_targets]
         elif len(specialist_targets) == 1:
@@ -524,5 +601,10 @@ def build_graph(config: dict = None):
         )
     else:
         workflow.add_edge("Journalist", END)
+
+    # ── Compile with optional checkpointer for HITL interrupt/resume ─────
+    if hitl_cfg.get("enabled", False):
+        from langgraph.checkpoint.memory import MemorySaver
+        return workflow.compile(checkpointer=MemorySaver())
 
     return workflow.compile()

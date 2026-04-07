@@ -84,6 +84,12 @@ Items are grouped by theme. `[x]` = implemented and pushed. `[ ]` = pending.
       `ingest.py` and `tools.py` with current `langchain-huggingface` / `langchain-chroma`;
       graceful fallback to `langchain_community` if new packages not installed;
       added `langchain-huggingface` + `langchain-chroma` to `requirements.txt`
+- [x] Human-in-the-Loop (HITL) via LangGraph `interrupt()` — four checkpoints:
+      `pre_flight` (CLI confirm), `post_plan` (approve/redirect orchestrator's first plan),
+      `pre_journalist` (add final framing), `on_rejection` (REVISE / OVERRIDE / custom);
+      graph compiled with `MemorySaver` when `hitl.enabled: true`; stream loop in
+      `main.py` detects `__interrupt__` events and resumes with `Command(resume=answer)`;
+      fully autonomous when `hitl.enabled: false` (no checkpointer overhead)
 - [ ] Add async tool execution within specialists — currently all tool calls are
       synchronous and sequential; `asyncio` + `ToolNode` async variants would allow
       parallel `search_pubmed` + `search_semantic_scholar` within one specialist call

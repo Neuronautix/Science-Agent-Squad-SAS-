@@ -9,23 +9,38 @@ Usage:
 
 All behavior is driven by swarm_config.yml. Edit that file to
 customize personas, tools, reviewer constraints, and LLM backend.
+
+Human-in-the-Loop (HITL)
+-------------------------
+When hitl.enabled = true in swarm_config.yml the swarm pauses at configured
+checkpoints and prompts the user via the CLI. The graph resumes when the user
+presses Enter or provides a redirect answer. This uses LangGraph interrupt()
+and Command(resume=...) with a MemorySaver checkpointer.
+
+Stream loop design:
+  1. Stream graph with stream_mode="updates" so interrupt events surface
+     in the event dict under the "__interrupt__" key.
+  2. When an "__interrupt__" event is detected, extract the payload, display
+     a formatted prompt, read the user's answer, and resume with
+     Command(resume=answer).
+  3. When hitl is disabled the loop runs once with no interrupt handling
+     and no checkpointer overhead.
 """
 
 import datetime
 import json
-import os
-import shutil
+import uuid
 from pathlib import Path
 
 import typer
 from dotenv import load_dotenv
-from langchain_core.messages import AIMessage
 
 from automation.config import (
     load_config,
     validate_env,
+    get_hitl_config,
 )
-from automation.graph import build_graph
+from automation.graph import build_graph, Command  # Command re-exported from graph.py
 
 # Load environment configuration (.env)
 load_dotenv()
@@ -67,6 +82,8 @@ MATRIX_HEADER = (
 )
 
 
+# ── Helper functions ──────────────────────────────────────────────────────
+
 def _ensure_matrix_header(config: dict, task: str) -> None:
     """Create the traceability matrix with its table header if it does not exist,
     then append a run-separator line so each run's entries are clearly delimited."""
@@ -87,8 +104,7 @@ def _write_run_metrics(config: dict, task: str, token_usage: dict) -> None:
     drafts_dir = Path(config["swarm"].get("output_dir", "./Drafts"))
     drafts_dir.mkdir(parents=True, exist_ok=True)
 
-    # Rough cost estimate using gpt-4o list pricing ($/M tokens, 2025)
-    input_price_per_m = 2.50
+    input_price_per_m = 2.50   # gpt-4o list pricing $/M tokens (2025)
     output_price_per_m = 10.00
     input_tok = token_usage.get("input_tokens", 0)
     output_tok = token_usage.get("output_tokens", 0)
@@ -117,8 +133,74 @@ def _write_run_metrics(config: dict, task: str, token_usage: dict) -> None:
     )
 
 
+def _display_event_messages(event: dict) -> None:
+    """Print progress messages extracted from a stream 'updates' event."""
+    for node_name, update in event.items():
+        if node_name == "__interrupt__":
+            continue
+        if not isinstance(update, dict):
+            continue
+        msgs = update.get("messages", [])
+        if not msgs:
+            continue
+        msg = msgs[-1]
+        if not hasattr(msg, "content") or not msg.content:
+            continue
+        content = str(msg.content)
+
+        if content.startswith("[Orchestrator"):
+            typer.secho(f"  ↳ {content}", fg=typer.colors.CYAN)
+        elif content.startswith("[Reviewer"):
+            colour = typer.colors.GREEN if "APPROVED" in content else typer.colors.RED
+            typer.secho(f"  {content}", fg=colour)
+        elif content.startswith("[") and "]: " in content:
+            typer.secho(f"  {content}", fg=typer.colors.GREEN)
+        elif hasattr(msg, "tool_calls") and msg.tool_calls:
+            for tc in msg.tool_calls:
+                typer.secho(
+                    f"    🔧 {tc['name']} ← {list(tc['args'].keys())}",
+                    fg=typer.colors.YELLOW,
+                )
+
+
+def _handle_hitl_interrupt(interrupt_objs) -> str:
+    """Display HITL checkpoint prompt and return the user's answer."""
+    # interrupt_objs is a tuple/list of Interrupt(value=...) from the stream
+    # We handle the last interrupt if multiple (shouldn't happen in practice)
+    payload = {}
+    for intr in interrupt_objs:
+        payload = intr.value if hasattr(intr, "value") else intr
+
+    checkpoint = payload.get("checkpoint", "checkpoint")
+    question = payload.get("question", "Continue?")
+    default = payload.get("default", "")
+
+    typer.secho(f"\n{'─' * 55}", fg=typer.colors.CYAN)
+    typer.secho(f"  ⏸  HITL Checkpoint: {checkpoint}", fg=typer.colors.CYAN, bold=True)
+    typer.secho(f"{'─' * 55}", fg=typer.colors.CYAN)
+    for line in question.splitlines():
+        typer.secho(f"  {line}", fg=typer.colors.WHITE)
+    typer.secho(f"{'─' * 55}\n", fg=typer.colors.CYAN)
+
+    answer = typer.prompt(
+        "Your response",
+        default=default,
+        show_default=bool(default),
+    )
+    return answer
+
+
 def _run_graph(config: dict, prompt: str) -> None:
-    """Core graph execution shared by `execute` and `report` commands."""
+    """Core graph execution shared by `execute` and `report` commands.
+
+    Stream loop:
+      - Uses stream_mode="updates" so interrupt events appear under
+        the "__interrupt__" key in the event dict.
+      - When HITL is disabled the loop runs once; no interrupt handling,
+        no checkpointer, no Command(resume=...) calls.
+      - When HITL is enabled the loop continues until the graph completes
+        naturally (no more interrupt events in the last batch of events).
+    """
     try:
         warnings = validate_env(config)
         for w in warnings:
@@ -129,8 +211,24 @@ def _run_graph(config: dict, prompt: str) -> None:
 
     _ensure_matrix_header(config, prompt)
 
+    hitl_cfg = get_hitl_config(config)
+    hitl_enabled = hitl_cfg.get("enabled", False)
+
+    # ── Pre-flight HITL: simple CLI confirm, no graph interrupt needed ───
+    if hitl_enabled and "pre_flight" in hitl_cfg.get("checkpoints", []):
+        typer.secho("\n⏸  HITL Pre-flight", fg=typer.colors.CYAN, bold=True)
+        typer.secho(f"  Task: {prompt[:120]}", fg=typer.colors.WHITE)
+        if not typer.confirm("  Proceed with this task?", default=True):
+            typer.secho("Aborted by user.", fg=typer.colors.YELLOW)
+            raise typer.Exit(code=0)
+
     swarm_name = config["swarm"]["name"]
-    typer.secho(f"🚀 Initializing {swarm_name} (multi-agent mode)...", fg=typer.colors.CYAN)
+    typer.secho(f"\n🚀 Initializing {swarm_name}...", fg=typer.colors.CYAN)
+    if hitl_enabled:
+        typer.secho(
+            f"   HITL active — checkpoints: {hitl_cfg.get('checkpoints', [])}",
+            fg=typer.colors.CYAN,
+        )
 
     graph = build_graph(config)
 
@@ -147,47 +245,55 @@ def _run_graph(config: dict, prompt: str) -> None:
         "token_usage": {},
     }
 
+    # Thread config: required for MemorySaver interrupt/resume; empty dict otherwise.
+    run_config = {"configurable": {"thread_id": str(uuid.uuid4())}} if hitl_enabled else {}
+
+    typer.secho("\n🧠 [SWARM ACTIVE] Streaming agent interactions...\n", fg=typer.colors.BLUE)
+
+    final_token_usage: dict = {}
+    current_input = initial_state   # first iteration: full state dict
+                                    # subsequent iterations (HITL only): Command(resume=...)
     try:
-        typer.secho(f"\n🧠 [SWARM ACTIVE] Streaming agent interactions...\n", fg=typer.colors.BLUE)
+        while True:
+            interrupted = False
 
-        final_event = initial_state
-        for event in graph.stream(initial_state, stream_mode="values"):
-            final_event = event
-            latest_msg = event.get("messages", [])
-            if not latest_msg:
-                continue
-            msg = latest_msg[-1]
+            for event in graph.stream(
+                current_input,
+                config=run_config,
+                stream_mode="updates",
+            ):
+                # Accumulate token_usage from any node update that carries it
+                for node_name, update in event.items():
+                    if isinstance(update, dict) and "token_usage" in update:
+                        for k, v in update["token_usage"].items():
+                            if isinstance(v, (int, float)):
+                                final_token_usage[k] = final_token_usage.get(k, 0) + v
 
-            if not hasattr(msg, "content") or not msg.content:
-                continue
+                # Check for interrupt before displaying messages
+                if "__interrupt__" in event:
+                    interrupt_objs = event["__interrupt__"]
+                    answer = _handle_hitl_interrupt(interrupt_objs)
+                    current_input = Command(resume=answer)
+                    interrupted = True
+                    break
 
-            content = str(msg.content)
+                _display_event_messages(event)
 
-            if content.startswith("[Orchestrator"):
-                typer.secho(f"  ↳ {content}", fg=typer.colors.CYAN)
-            elif content.startswith("[") and "]: " in content:
-                typer.secho(f"  {content}", fg=typer.colors.GREEN)
-            elif content.startswith("[Reviewer"):
-                colour = typer.colors.GREEN if "APPROVED" in content else typer.colors.RED
-                typer.secho(f"  {content}", fg=colour)
-            elif hasattr(msg, "tool_calls") and msg.tool_calls:
-                for tc in msg.tool_calls:
-                    typer.secho(
-                        f"    🔧 {tc['name']} ← {list(tc['args'].keys())}",
-                        fg=typer.colors.YELLOW,
-                    )
-
-        typer.secho("\n✅ Task complete.", fg=typer.colors.GREEN)
-        output_dir = config["swarm"].get("output_dir", "./Drafts")
-        typer.secho(f"📂 Outputs saved to '{output_dir}/'", fg=typer.colors.CYAN)
-
-        # Write token/cost metrics using the accumulated state from the final event
-        _write_run_metrics(config, prompt, final_event.get("token_usage", {}))
+            if not interrupted:
+                break  # Graph completed naturally
 
     except Exception as e:
-        typer.secho(f"Execution Error: {e}", fg=typer.colors.RED)
+        typer.secho(f"\nExecution Error: {e}", fg=typer.colors.RED)
         raise typer.Exit(code=1)
 
+    typer.secho("\n✅ Task complete.", fg=typer.colors.GREEN)
+    output_dir = config["swarm"].get("output_dir", "./Drafts")
+    typer.secho(f"📂 Outputs saved to '{output_dir}/'", fg=typer.colors.CYAN)
+
+    _write_run_metrics(config, prompt, final_token_usage)
+
+
+# ── CLI commands ──────────────────────────────────────────────────────────
 
 @app.command()
 def execute(prompt: str):
@@ -245,10 +351,8 @@ def report(
         )
         raise typer.Exit(code=1)
 
-    template = REPORT_MODES[mode]
-    full_prompt = template + prompt
     typer.secho(f"📋 Report mode: {mode}", fg=typer.colors.CYAN)
-    _run_graph(config, full_prompt)
+    _run_graph(config, REPORT_MODES[mode] + prompt)
 
 
 @app.command()
@@ -335,10 +439,10 @@ def info():
     swarm = config["swarm"]
     model = config["model"]
 
-    typer.secho(f"\n{'═' * 50}", fg=typer.colors.CYAN)
+    typer.secho(f"\n{'═' * 55}", fg=typer.colors.CYAN)
     typer.secho(f"  {swarm['name']}", fg=typer.colors.CYAN, bold=True)
     typer.secho(f"  {swarm.get('description', '')}", fg=typer.colors.WHITE)
-    typer.secho(f"{'═' * 50}", fg=typer.colors.CYAN)
+    typer.secho(f"{'═' * 55}", fg=typer.colors.CYAN)
 
     typer.secho(f"\n📡 Model: {model['provider']}/{model['name']} (temp={model.get('temperature', 0.2)})")
 
@@ -352,12 +456,20 @@ def info():
         typer.secho(f"   • {name}: {spec.get('description', spec['function'])}")
 
     orch = config.get("orchestrator", {})
-    typer.secho(f"\n🎯 Orchestrator: {orch.get('agent', 'Dr. Nexus')} "
-                f"(journalist: {orch.get('journalist', 'Journalist')}, "
-                f"max_agent_calls: {orch.get('max_agent_calls', 8)}, "
-                f"max_tool_rounds: {orch.get('max_tool_rounds_per_agent', 5)})")
+    typer.secho(
+        f"\n🎯 Orchestrator: {orch.get('agent', 'Dr. Nexus')} "
+        f"(journalist: {orch.get('journalist', 'Journalist')}, "
+        f"max_agent_calls: {orch.get('max_agent_calls', 8)}, "
+        f"max_tool_rounds: {orch.get('max_tool_rounds_per_agent', 5)})"
+    )
 
     typer.secho(f"\n📋 Report modes: {', '.join(REPORT_MODES)}")
+
+    hitl_cfg = get_hitl_config(config)
+    hitl_status = "✅ Enabled" if hitl_cfg["enabled"] else "❌ Disabled"
+    typer.secho(f"\n⏸  HITL: {hitl_status}")
+    if hitl_cfg["enabled"]:
+        typer.secho(f"   Checkpoints: {', '.join(hitl_cfg['checkpoints'])}")
 
     reviewer = config["reviewer"]
     r_status = "✅ Enabled" if reviewer.get("enabled", True) else "❌ Disabled"

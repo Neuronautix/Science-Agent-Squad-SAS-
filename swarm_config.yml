@@ -218,6 +218,24 @@ reviewer:
   #   If the output contains forward-looking statements without disclaimers,
   #   or if projections are not clearly labeled as estimates, REJECT it.
 
+# ── Human-in-the-Loop (HITL) Checkpoints ─────────────
+# When enabled, the swarm pauses at configured points and asks the user
+# a focused QC question before continuing. Uses LangGraph interrupt().
+# Set enabled: false for fully autonomous runs (default behaviour).
+#
+# Available checkpoints:
+#   pre_flight      — confirm task scope before the graph starts (CLI prompt, no interrupt)
+#   post_plan       — approve/redirect the orchestrator's first routing decision
+#   pre_journalist  — add final framing instructions before the Journalist writes
+#   on_rejection    — reviewer rejected: choose REVISE / OVERRIDE / custom instructions
+hitl:
+  enabled: false
+  checkpoints:
+    - pre_flight
+    - post_plan
+    - pre_journalist
+    - on_rejection
+
 # ── Epistemic Tags ───────────────────────────────────
 # Tags used to classify knowledge claims in the traceability matrix.
 # Customize these to fit your domain's epistemology.
