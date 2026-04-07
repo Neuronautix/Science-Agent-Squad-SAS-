@@ -1,27 +1,160 @@
-# PIU Psych Swarm: Future Development Roadmap
+# PIU Psych Swarm — Improvements & Fix Tracker
 
-This document tracks future improvements for the problematic-internet-use psychiatric workflow.
+Items are grouped by theme. `[x]` = implemented and pushed. `[ ]` = pending.
 
-## Phase 1: Clinical Workflow Hardening
+---
 
-- [ ] Add explicit template outputs for scoping review, narrative review, and evidence brief modes
-- [ ] Add optional screening prompts for adolescent, university, and general-adult populations
-- [ ] Add a traceability-matrix auto-header that inserts task date, population, and target construct
+## Architecture: Multi-Agent Refactor
 
-## Phase 2: Tooling Improvements
+- [x] Rewrite `graph.py` as a true supervisor multi-agent pattern — each persona is a
+      separate LangGraph node with its own system prompt and scoped tool set
+- [x] Add per-persona helper functions to `config.py`:
+      `get_persona_config`, `load_tools_for_persona`, `build_agent_system_prompt`
+- [x] Update `main.py` `execute()` to pass task string as initial state
+      (no swarm-level system prompt injected from CLI)
+- [x] Add `orchestrator:` section to `swarm_config.yml`
+      (`agent`, `journalist`, `max_agent_calls`, `max_tool_rounds_per_agent`)
+- [x] Remove `truncate(300)` from `system_prompt_template` persona injection —
+      full persona.md content now reaches the model
+- [x] Mark `system_prompt_template` as `LEGACY — NOT USED` in `swarm_config.yml`
+- [x] Mark `build_system_prompt()` as legacy in `config.py` docstring
+- [x] Remove `load_tools()` from `config.py` — dead code, no longer called at runtime
 
-- [ ] Replace deprecated LangChain embedding/vectorstore imports with current package paths
-- [ ] Add Europe PMC or Crossref lookup for richer citation metadata
-- [ ] Add a report-mode command that writes directly into a dated draft template
+---
 
-## Phase 3: Methodological Guardrails
+## Orchestrator (Dr. Nexus)
 
-- [ ] Add reviewer checks for overpathologizing normal internet use
-- [ ] Add reviewer checks that prevent prevalence claims without measurement caveats
-- [ ] Add reviewer checks that force disorder-status clarification when IGD is mentioned
+- [x] Structured output routing via `OrchestratorDecision` Pydantic model
+      (`reasoning`, `next_agents: list[str]`, `instructions`)
+- [x] Parallel specialist fan-out via LangGraph `Send` — orchestrator can dispatch
+      multiple specialists simultaneously when sub-questions are independent
+- [x] Add `SPECIALISTS ALREADY CONSULTED` list to orchestrator routing prompt
+      (derived from `agent_outputs.keys()`) to prevent redundant re-routing
+- [x] Fix `agent_call_count` to increment only for specialist dispatches
+      (not for Journalist or END routing); gives full `max_agent_calls` budget
+      for actual research calls
+- [x] Allow per-agent instructions in parallel dispatch — `AgentAssignment(BaseModel)`
+      added to `OrchestratorDecision`; `agent_assignments: dict` in `GraphState`;
+      specialists read `state["agent_assignments"].get(name)` before falling back
+      to the shared `next_instructions`
+- [x] Cache `create_model(config)` at build time — all LLM instances created once in
+      `build_graph()`; specialist models pre-bound with `base_model.bind_tools(tools)`;
+      eliminates per-call API client instantiation
 
-## Phase 4: Study-Specific Expansion
+---
 
-- [ ] Add separate KB packets for social media disorder, gaming disorder, and smartphone overuse
-- [ ] Add intervention summaries for family-based, school-based, and telehealth pathways
+## Tool Bugs & Safety
+
+- [x] Fix `_run_tool_loop` bug — `messages = tool_result["messages"]` replaced with
+      `messages = messages + tool_result["messages"]`; prior context was being
+      discarded after the first tool call in every agent node
+- [x] Fix `git_commit_snapshot` — replace `git add -A` with explicit safe paths
+      (`Drafts/` + traceability matrix read from config); eliminates risk of
+      staging `.env`, credentials, notebooks, or binaries
+- [x] `write_manuscript_section` silently overwrites on repeated calls with the same
+      section name — fixed: version counter suffix (_v2, _v3, …) appended when base
+      file already exists
+- [x] `append_traceability_matrix` appends raw markdown table rows with no structure
+      validation — fixed: checks file exists and table header sentinel is present
+      before writing; returns descriptive error if either check fails
+
+---
+
+## Tool Capability
+
+- [x] `search_pubmed`: switch from `esummary` (title + PMID only) to `efetch` with
+      `rettype=abstract&retmode=xml`; parses full abstract including labelled sections
+- [x] Add `search_semantic_scholar` tool (Semantic Scholar Graph API, no key needed);
+      indexes preprints, arXiv, CHI, and 2024–2026 papers absent from PubMed;
+      registered as `search_preprints` and assigned to all four research specialists
+- [x] Add `Search Fallback` rule to all specialist `persona.md` files:
+      if `search_literature` returns empty → try `search_preprints` → then `search_web`
+- [x] Fix `search_you_engine` base URL (legacy `ydc-index.io` endpoint → `api.ydc-index.io`)
+      and update response parsing for current API response structure
+- [x] Add `you_research` tool (You.com Research / RAG API) — synthesised answer with citations;
+      assigned to ClinicalPsych, EpiScope, NeuroCogs, CarePath
+- [x] Replace `scrape_webpage` BeautifulSoup implementation with You.com Contents API
+      (`/news?url=...`); BeautifulSoup kept as fallback for API unavailability
+- [x] Assign `scrape_page` to all four research specialists in `swarm_config.yml`
+      (was registered but unassigned)
+- [x] Add `lookup_doi` tool (Europe PMC primary + Crossref fallback) — no API key;
+      returns title, authors, journal, year, DOI, abstract snippet, OA PDF link;
+      registered in swarm_config.yml and assigned to all four research specialists
+- [x] Replace deprecated `langchain_community` embedding/vectorstore imports in
+      `ingest.py` and `tools.py` with current `langchain-huggingface` / `langchain-chroma`;
+      graceful fallback to `langchain_community` if new packages not installed;
+      added `langchain-huggingface` + `langchain-chroma` to `requirements.txt`
+- [x] Human-in-the-Loop (HITL) via LangGraph `interrupt()` — four checkpoints:
+      `pre_flight` (CLI confirm), `post_plan` (approve/redirect orchestrator's first plan),
+      `pre_journalist` (add final framing), `on_rejection` (REVISE / OVERRIDE / custom);
+      graph compiled with `MemorySaver` when `hitl.enabled: true`; stream loop in
+      `main.py` detects `__interrupt__` events and resumes with `Command(resume=answer)`;
+      fully autonomous when `hitl.enabled: false` (no checkpointer overhead)
+- [ ] Add async tool execution within specialists — currently all tool calls are
+      synchronous and sequential; `asyncio` + `ToolNode` async variants would allow
+      parallel `search_pubmed` + `search_semantic_scholar` within one specialist call
+- [x] Add token/cost tracking per run — `_extract_token_usage()` reads `usage_metadata`
+      (LangChain ≥ 0.2) or `response_metadata.token_usage` (older); `_merge_token_usage`
+      accumulates in `GraphState`; `main.py` writes `Drafts/run_metrics.json` with
+      input/output/total tokens and estimated cost (gpt-4o list pricing)
+
+---
+
+## Reviewer-2 (Adversarial Checkpoint)
+
+- [x] Reviewer model diversity — `create_reviewer_model()` in `config.py` merges
+      `reviewer.model` overrides onto the base config; active config sets
+      `temperature: 0.8` for genuinely adversarial critique vs `0.2` for agents
+- [x] Add AI-chatbot construct instability check to `reviewer.required_elements` —
+      reviewer rejects any output on AI/LLM use that lacks a note on whether
+      evidence meets clinical-level impairment criteria
+- [ ] Reviewer uses the same model name as research agents (only temperature differs);
+      for maximum adversarial diversity, configure a different model family
+      (e.g., Anthropic claude-opus when agents run on gpt-4o, or vice versa)
+- [x] Add reviewer checks: prevalence claims must name instrument + cut-off; IGD mentions
+      must clarify ICD-11 vs DSM-5 status; output must not imply pathology from frequency
+      alone — all three enforced via `required_elements` and `rejection_patterns` in
+      `swarm_config.yml`; `build_reviewer_prompt()` in `config.py` now incorporates
+      `rejection_patterns` into the generated adversarial prompt
+
+---
+
+## Knowledge Base & Literature
+
+- [x] Add 2025–2026 AI-dependence literature to all five agent KBs:
+      `ClinicalPsych`, `EpiScope`, `NeuroCogs`, `CarePath`, `DrNexus`
+      (15 peer-reviewed and preprint references across construct debate,
+      scales, reward mechanisms, mental health correlates, and care implications)
+- [ ] Add separate KB packets for social media disorder, gaming disorder (IGD),
+      and smartphone overuse (currently all live in the same general PIU KB)
+- [ ] Add intervention summaries for family-based, school-based, and telehealth
+      pathways to `CarePath/KB/`
+- [x] Add traceability-matrix auto-header — `main.py` creates `Knowledge_Traceability_Matrix.md`
+      with Markdown table header if absent; appends a dated run-separator
+      (`### Run: YYYY-MM-DD HH:MM | Task: ...`) before each graph execution
+
+---
+
+## Clinical Workflow & Output Templates
+
+- [x] Add `report` CLI command with output mode templates — `REPORT_MODES` dict in
+      `main.py` with templates for `scoping-review`, `narrative-review`, `evidence-brief`;
+      selectable via `--mode` flag; prepends mode instruction to the research prompt
+- [ ] Add optional screening prompts for adolescent, university, and general-adult
+      populations (different PIU base-rates, instruments, and clinical thresholds apply)
 - [ ] Add prompt packs for grant support, manuscript drafting, and journalistic briefings
+
+---
+
+## Methodological Guardrails (Reviewer Rules)
+
+*All three checks below were implemented in swarm_config.yml (`required_elements` +
+`rejection_patterns`) and wired into the auto-generated reviewer prompt via
+`build_reviewer_prompt()` in config.py.*
+
+- [x] Reject outputs that imply high-frequency internet use is inherently pathological
+      without evidence of functional impairment (`rejection_patterns` key)
+- [x] Reject prevalence claims that do not name the screening instrument and cut-off
+      (`required_elements`: "…cut-off score used must be stated")
+- [x] Require explicit disorder-status clarification when IGD or internet gaming disorder
+      is mentioned (`required_elements`: "ICD-11 recognized vs. DSM-5 Section III")

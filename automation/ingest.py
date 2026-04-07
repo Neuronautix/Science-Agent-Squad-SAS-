@@ -3,10 +3,15 @@ from typing import List
 from pathlib import Path
 
 from langchain_community.document_loaders import PyPDFLoader, TextLoader
-from langchain_community.embeddings import SentenceTransformerEmbeddings
-from langchain_community.vectorstores import Chroma
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from rich.console import Console
+
+try:
+    from langchain_huggingface import HuggingFaceEmbeddings as SentenceTransformerEmbeddings
+    from langchain_chroma import Chroma
+except ImportError:
+    from langchain_community.embeddings import SentenceTransformerEmbeddings  # type: ignore[no-redef]
+    from langchain_community.vectorstores import Chroma  # type: ignore[no-redef]
 
 from automation.config import load_config
 
