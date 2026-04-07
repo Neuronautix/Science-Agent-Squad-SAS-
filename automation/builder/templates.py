@@ -305,6 +305,20 @@ def get_blueprint_descriptions() -> dict[str, str]:
     }
 
 
+def _validate_archetype_tools(archetype: str, tools: list[str]) -> None:
+    """Raise if any tool listed in an archetype spec is absent from BUILTIN_TOOL_REGISTRY.
+
+    This catches mistakes in ARCHETYPE_SPECS at swarm-build time rather than
+    at runtime when the tool import would silently fail.
+    """
+    unknown = [t for t in tools if t not in BUILTIN_TOOL_REGISTRY]
+    if unknown:
+        raise ValueError(
+            f"archetype '{archetype}' references tools not in BUILTIN_TOOL_REGISTRY: {unknown}. "
+            f"Add them to BUILTIN_TOOL_REGISTRY or remove them from the archetype."
+        )
+
+
 def build_persona_from_archetype(
     archetype: str,
     domain: str,
@@ -315,6 +329,7 @@ def build_persona_from_archetype(
         raise ValueError(f"unknown archetype '{archetype}'")
 
     spec = ARCHETYPE_SPECS[archetype]
+    _validate_archetype_tools(archetype, spec["tools"])
     persona_name = name or archetype.replace("-", " ").title()
     persona_role = role or spec["role"]
 
