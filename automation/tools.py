@@ -28,6 +28,8 @@ import requests
 from langchain_core.tools import tool
 
 
+
+
 # ═══════════════════════════════════════════════════════
 # RESEARCH TOOLS (Domain-Specific — swap these per domain)
 # ═══════════════════════════════════════════════════════
@@ -229,18 +231,35 @@ def check_schema_org(entity: str) -> str:
 @tool
 def write_manuscript_section(section_name: str, content: str) -> str:
     """Writes a drafted section to the disk in the configured output directory.
-    The file will be saved as a Markdown (.md) file."""
-    # Use the config's output_dir if available, fallback to Drafts/
+    The file will be saved as a Markdown (.md) file.
+
+    To prevent silent overwrites when the same section is revised multiple times
+    in a run, a version counter suffix (_v2, _v3, …) is appended if a file with
+    the base name already exists.
+    """
+    import datetime
+
     drafts_dir = os.path.join(os.path.dirname(__file__), "..", "Drafts")
     os.makedirs(drafts_dir, exist_ok=True)
-    filename = f"{section_name.lower().replace(' ', '_')}.md"
-    filepath = os.path.join(drafts_dir, filename)
+    base_slug = section_name.lower().replace(" ", "_")
+
+    # Version the file rather than silently overwriting
+    filepath = os.path.join(drafts_dir, f"{base_slug}.md")
+    if os.path.exists(filepath):
+        version = 2
+        while os.path.exists(os.path.join(drafts_dir, f"{base_slug}_v{version}.md")):
+            version += 1
+        filepath = os.path.join(drafts_dir, f"{base_slug}_v{version}.md")
+
     try:
         with open(filepath, "w", encoding="utf-8") as f:
             f.write(content)
         return f"SUCCESS: Wrote '{section_name}' to {filepath}"
     except Exception as e:
         return f"FAILED to write file: {e}"
+
+
+_MATRIX_HEADER_SENTINEL = "| Source |"  # first cell of the expected table header
 
 
 @tool
@@ -256,6 +275,29 @@ def append_traceability_matrix(fact: str, source: str, epistemic_tag: str) -> st
     filepath = os.path.join(
         os.path.dirname(__file__), "..", "Knowledge_Traceability_Matrix.md"
     )
+
+    # Guard: the file must exist and contain the table header before we append.
+    # Without this check a corrupted or deleted matrix silently receives raw rows,
+    # producing an unparseable file on the next review.
+    if not os.path.exists(filepath):
+        return (
+            f"FAILED to append to Traceability Matrix: "
+            f"'{filepath}' does not exist. "
+            "Create the file with its Markdown table header first."
+        )
+
+    try:
+        existing = Path(filepath).read_text(encoding="utf-8")
+    except Exception as e:
+        return f"FAILED to read Traceability Matrix: {e}"
+
+    if _MATRIX_HEADER_SENTINEL not in existing:
+        return (
+            "FAILED to append to Traceability Matrix: "
+            "expected table header not found in the file. "
+            "The matrix may be corrupted or in an unexpected format."
+        )
+
     try:
         new_row = (
             f"| *Live Search:* {source} | **Auto-Agent** | "
@@ -550,12 +592,16 @@ def search_knowledge_base(query: str, agent_name: str = "all", top_k: int = 5) -
         top_k: Number of top results to return.
     """
     try:
-        from langchain_community.embeddings import SentenceTransformerEmbeddings
-        from langchain_community.vectorstores import Chroma
+        try:
+            from langchain_huggingface import HuggingFaceEmbeddings as SentenceTransformerEmbeddings
+            from langchain_chroma import Chroma
+        except ImportError:
+            from langchain_community.embeddings import SentenceTransformerEmbeddings
+            from langchain_community.vectorstores import Chroma
     except ImportError:
         return (
             "ERROR: Required packages not installed. "
-            "Run: pip install chromadb sentence-transformers"
+            "Run: pip install langchain-huggingface langchain-chroma sentence-transformers"
         )
 
     db_base = os.path.join(os.path.dirname(__file__), "db")

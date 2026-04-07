@@ -121,63 +121,30 @@ def build_reviewer_prompt(config: dict) -> str:
         return r["custom_prompt"]
 
     banned = ", ".join(f"'{w}'" for w in r.get("banned_words", []))
-    required = " AND ".join(r.get("required_elements", []))
+    required_items = r.get("required_elements", [])
+    required = " AND ".join(required_items)
     tone = r.get("tone", "objective and neutral")
+
+    rejection_patterns = r.get("rejection_patterns", [])
+    rejection_clause = ""
+    if rejection_patterns:
+        patterns_str = "; ".join(f"'{p}'" for p in rejection_patterns)
+        rejection_clause = (
+            f" Additionally, REJECT if the text contains any of these prohibited patterns: "
+            f"{patterns_str}."
+        )
 
     return (
         f"You are Reviewer-2 (Adversarial Critic). You read the agent's final text output. "
         f"If they use hype words ({banned}), OR if they fail to maintain a {tone} tone, "
         f"you MUST reject it. Additionally, if the text does NOT include {required}, "
-        f"you MUST reject it. To reject, reply starting exactly with 'REJECTED: ' and list the "
+        f"you MUST reject it.{rejection_clause} "
+        f"To reject, reply starting exactly with 'REJECTED: ' and list the "
         f"exact flaws prohibiting publication. "
         f"If it is perfectly factual, properly cited, and contains all required elements, "
         f"reply exactly with 'APPROVED'."
     )
 
-
-def load_tools(config: dict) -> list:
-    """Dynamically import and return tool functions from config.
-
-    Each tool entry in swarm_config.yml maps a logical name to:
-      module: "automation.tools"
-      function: "search_pubmed"
-
-    This function imports the module and retrieves the decorated @tool function.
-    """
-    tool_functions = []
-    seen = set()
-
-    for tool_name, tool_spec in config["tools"].items():
-        module_path = tool_spec["module"]
-        function_name = tool_spec["function"]
-        key = f"{module_path}.{function_name}"
-
-        # Avoid duplicates (multiple personas may reference the same tool)
-        if key in seen:
-            continue
-        seen.add(key)
-
-        try:
-            module = importlib.import_module(module_path)
-            func = getattr(module, function_name)
-            tool_functions.append(func)
-        except (ModuleNotFoundError, AttributeError) as e:
-            console.print(
-                f"[red]Error loading tool '{tool_name}' "
-                f"({module_path}.{function_name}): {e}[/red]"
-            )
-            console.print(
-                f"[yellow]Skipping tool '{tool_name}'. "
-                f"The swarm will run without it.[/yellow]"
-            )
-
-    if not tool_functions:
-        raise ValueError(
-            "No tools could be loaded from swarm_config.yml. "
-            "Check that the module paths and function names are correct."
-        )
-
-    return tool_functions
 
 
 def get_persona_config(config: dict, persona_name: str) -> dict:
@@ -324,18 +291,24 @@ def validate_env(config: dict) -> list[str]:
             f"Copy .env.example to .env and add your API key."
         )
 
-    # Check tool-specific optional keys
+    # Check tool-specific optional keys — map function name → env var.
+    # Collect tool names per missing key to emit one consolidated warning each.
     tool_env_keys = {
         "search_you_engine": "YOU_API_KEY",
+        "you_research": "YOU_API_KEY",
+        "scrape_webpage": "YOU_API_KEY",
     }
+    missing_key_tools: dict[str, list[str]] = {}
     for tool_name, tool_spec in config["tools"].items():
         func_name = tool_spec.get("function", "")
         if func_name in tool_env_keys:
             env_key = tool_env_keys[func_name]
             if not os.getenv(env_key):
-                warnings.append(
-                    f"Tool '{tool_name}' requires '{env_key}' — "
-                    f"it will fail at runtime if called."
-                )
+                missing_key_tools.setdefault(env_key, []).append(tool_name)
+
+    for env_key, tool_names in missing_key_tools.items():
+        warnings.append(
+            f"'{env_key}' is not set — tools {tool_names} will fail at runtime if called."
+        )
 
     return warnings

@@ -18,8 +18,7 @@ Items are grouped by theme. `[x]` = implemented and pushed. `[ ]` = pending.
       full persona.md content now reaches the model
 - [x] Mark `system_prompt_template` as `LEGACY — NOT USED` in `swarm_config.yml`
 - [x] Mark `build_system_prompt()` as legacy in `config.py` docstring
-- [ ] Remove `load_tools()` from `config.py` — dead code, no longer called at runtime
-      (kept for backward compat with custom scripts; remove in a breaking release)
+- [x] Remove `load_tools()` from `config.py` — dead code, no longer called at runtime
 
 ---
 
@@ -50,11 +49,12 @@ Items are grouped by theme. `[x]` = implemented and pushed. `[ ]` = pending.
 - [x] Fix `git_commit_snapshot` — replace `git add -A` with explicit safe paths
       (`Drafts/` + traceability matrix read from config); eliminates risk of
       staging `.env`, credentials, notebooks, or binaries
-- [ ] `write_manuscript_section` silently overwrites on repeated calls with the same
-      section name — add a timestamp suffix or version counter to the filename
-- [ ] `append_traceability_matrix` appends raw markdown table rows with no structure
-      validation — add a check that the target file exists and its table header
-      is intact before writing, to prevent corruption on repeated runs
+- [x] `write_manuscript_section` silently overwrites on repeated calls with the same
+      section name — fixed: version counter suffix (_v2, _v3, …) appended when base
+      file already exists
+- [x] `append_traceability_matrix` appends raw markdown table rows with no structure
+      validation — fixed: checks file exists and table header sentinel is present
+      before writing; returns descriptive error if either check fails
 
 ---
 
@@ -77,8 +77,10 @@ Items are grouped by theme. `[x]` = implemented and pushed. `[ ]` = pending.
       (was registered but unassigned)
 - [ ] Add Europe PMC or Crossref lookup for DOI resolution and richer citation metadata
       (DOI, publication date, open-access PDF link)
-- [ ] Replace deprecated `langchain_community` embedding/vectorstore imports in
-      `ingest.py` with current `langchain-huggingface` / `langchain-chroma` paths
+- [x] Replace deprecated `langchain_community` embedding/vectorstore imports in
+      `ingest.py` and `tools.py` with current `langchain-huggingface` / `langchain-chroma`;
+      graceful fallback to `langchain_community` if new packages not installed;
+      added `langchain-huggingface` + `langchain-chroma` to `requirements.txt`
 - [ ] Add async tool execution within specialists — currently all tool calls are
       synchronous and sequential; `asyncio` + `ToolNode` async variants would allow
       parallel `search_pubmed` + `search_semantic_scholar` within one specialist call
@@ -98,8 +100,11 @@ Items are grouped by theme. `[x]` = implemented and pushed. `[ ]` = pending.
 - [ ] Reviewer uses the same model name as research agents (only temperature differs);
       for maximum adversarial diversity, configure a different model family
       (e.g., Anthropic claude-opus when agents run on gpt-4o, or vice versa)
-- [ ] Add reviewer check: prevent prevalence claims without instrument and cut-off
-      caveats (already in Phase 3 below — consolidate)
+- [x] Add reviewer checks: prevalence claims must name instrument + cut-off; IGD mentions
+      must clarify ICD-11 vs DSM-5 status; output must not imply pathology from frequency
+      alone — all three enforced via `required_elements` and `rejection_patterns` in
+      `swarm_config.yml`; `build_reviewer_prompt()` in `config.py` now incorporates
+      `rejection_patterns` into the generated adversarial prompt
 
 ---
 
