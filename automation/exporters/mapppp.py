@@ -494,7 +494,11 @@ def export_hcm_mapppp_bundle(
                     persona=HCM_RISK_PERSONA,
                     note=note,
                     note_type="risk_audit",
-                    source_anchors=_build_source_anchors(None, citations, references),
+                    source_anchors=_build_source_anchors(
+                        source_id=None,
+                        citations=citations,
+                        references=references,
+                    ),
                     in_text_citations=citations,
                 )
             )
