@@ -3,7 +3,7 @@ from pathlib import Path
 
 from typer.testing import CliRunner
 
-from automation.exporters.mapppp import export_hcm_mapppp_bundle
+from automation.exporters.mapppp import HCM_METADATA_PERSONA, export_hcm_mapppp_bundle
 from automation.main import app
 
 
@@ -13,6 +13,8 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 def _write_hcm_fixture_files(tmp_path: Path) -> tuple[Path, Path, Path, Path]:
     config_path = REPO_ROOT / "swarm_config_hcmsas.yml"
 
+    # Seed the fixture from the checked-in HCM example matrix so the test stays
+    # aligned with the repository's real HCM export inputs.
     matrix_text = (REPO_ROOT / "Knowledge_Traceability_Matrix_HCMSAS.md").read_text(encoding="utf-8")
     matrix_text += (
         "| HCM-001 | [FACT] Continuous cage-side HCM can capture circadian locomotor activity in mice [1] | "
@@ -70,7 +72,7 @@ This HCMSAS report focuses on preclinical home cage monitoring in mice [1].
 
     review_notes = [
         {
-            "persona": "Metadata Architect",
+            "persona": HCM_METADATA_PERSONA,
             "note": "Keep MNMS mappings proposal-level because several core fields remain missing [1].",
             "note_type": "mnms_review",
             "source_anchor": "DOI:10.1000/hcm.methods.2024",

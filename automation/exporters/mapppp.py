@@ -13,6 +13,28 @@ from pydantic import BaseModel, Field
 
 _CITATION_RE = re.compile(r"\[(\d+)\]")
 _SECTION_RE = re.compile(r"^\s{0,3}(?:##|#)\s+([A-I])\.\s+(.+?)\s*$", re.MULTILINE)
+_KNOWN_EPISTEMIC_TAGS = [
+    "[FACT]",
+    "[INFERENCE]",
+    "[SPECULATION]",
+    "[MISSING]",
+    "[MISSING SOURCE]",
+    "[PLATFORM-SPECIFIC]",
+    "[CONTESTED]",
+]
+_TRACEABILITY_HEADERS = [
+    "claim_id",
+    "claim",
+    "epistemic_tag",
+    "source",
+    "agent",
+    "mnms_category",
+    "notes",
+    "status",
+]
+
+HCM_METADATA_PERSONA = "Metadata Architect"
+HCM_RISK_PERSONA = "Reproducibility and Bias Auditor"
 
 
 def _unique(values: list[str]) -> list[str]:
@@ -28,6 +50,10 @@ def _unique(values: list[str]) -> list[str]:
 
 def _extract_citations(text: str) -> list[str]:
     return _unique([f"[{match}]" for match in _CITATION_RE.findall(text or "")])
+
+
+def _extract_epistemic_tags(text: str) -> list[str]:
+    return [tag for tag in _KNOWN_EPISTEMIC_TAGS if tag in (text or "")]
 
 
 def _normalise_header(header: str) -> str:
@@ -251,11 +277,11 @@ def _infer_study_context(config: dict[str, Any], draft_text: str) -> StudyContex
         domain = "preclinical home cage monitoring"
 
     species = None
-    if any(term in text_blob for term in (" mice", " mouse", "murine", "c57bl/6")):
+    if re.search(r"\b(mice|mouse|murine|c57bl/6)\b", text_blob):
         species = "mouse"
-    elif any(term in text_blob for term in (" rats", " rat")):
+    elif re.search(r"\b(rats|rat)\b", text_blob):
         species = "rat"
-    elif "rodent" in text_blob:
+    elif re.search(r"\brodent(s)?\b", text_blob):
         species = "rodent"
 
     standards = []
@@ -274,8 +300,13 @@ def _infer_study_context(config: dict[str, Any], draft_text: str) -> StudyContex
 def _load_traceability_rows(traceability_matrix_path: Path) -> list[dict[str, str]]:
     text = traceability_matrix_path.read_text(encoding="utf-8")
     lines = text.splitlines()
+    expected_headers = _TRACEABILITY_HEADERS
     for index, line in enumerate(lines):
-        if line.strip().lower() != "| claim_id | claim | epistemic_tag | source | agent | mnms_category | notes | status |":
+        normalised_headers = [
+            _normalise_header(cell)
+            for cell in line.strip().strip("|").split("|")
+        ]
+        if not set(expected_headers).issubset(normalised_headers):
             continue
         headers = [cell.strip() for cell in line.strip().strip("|").split("|")]
         rows: list[dict[str, str]] = []
@@ -297,6 +328,8 @@ def _load_traceability_rows(traceability_matrix_path: Path) -> list[dict[str, st
         if rows:
             return rows
 
+    # Fallback for traceability files that still keep rows inside a contiguous
+    # Markdown table block instead of appending them after the template footer.
     tables = _extract_markdown_tables(text)
     for table in tables:
         headers = set(table[0].keys()) if table else set()
@@ -318,8 +351,12 @@ def export_hcm_mapppp_bundle(
     draft_path: str | Path,
     traceability_matrix_path: str | Path,
     review_notes_path: str | Path | None = None,
+    exported_at: datetime | None = None,
 ) -> MAPPPPBundle:
-    """Build a proposal-only MAPPPP bundle from existing HCM swarm artifacts."""
+    """Build a proposal-only MAPPPP bundle from existing HCM swarm artifacts.
+
+    If provided, exported_at should be a timezone-aware datetime.
+    """
     config_path = Path(config_path)
     draft_path = Path(draft_path)
     traceability_matrix_path = Path(traceability_matrix_path)
@@ -385,7 +422,7 @@ def export_hcm_mapppp_bundle(
                     assertion_id=f"evidence-table-{index}-{row_index}",
                     statement=statement,
                     assertion_type=row.get("evidence_type") or "evidence_table_row",
-                    epistemic_tags=_unique(re.findall(r"\[[A-Z\-]+\]", statement + " " + (notes or ""))),
+                    epistemic_tags=_extract_epistemic_tags(statement + " " + (notes or "")),
                     source_anchors=_build_source_anchors(source_id, citations, references),
                     in_text_citations=citations,
                     notes=notes,
@@ -416,8 +453,8 @@ def export_hcm_mapppp_bundle(
                 assertion_id=f"metadata-gap-{index}",
                 statement=bullet,
                 assertion_type="metadata_gap",
-                persona="Metadata Architect",
-                epistemic_tags=re.findall(r"\[[A-Z\-]+\]", bullet),
+                persona=HCM_METADATA_PERSONA,
+                epistemic_tags=_extract_epistemic_tags(bullet),
                 source_anchors=_build_source_anchors(None, citations, references),
                 in_text_citations=citations,
             )
@@ -452,7 +489,7 @@ def export_hcm_mapppp_bundle(
             review_notes.append(
                 ReviewNote(
                     note_id=f"risk-note-{index}-{row_index}",
-                    persona="Reproducibility and Bias Auditor",
+                    persona=HCM_RISK_PERSONA,
                     note=note,
                     note_type="risk_audit",
                     source_anchors=_build_source_anchors(row.get("affected_studies"), citations, references),
@@ -482,7 +519,7 @@ def export_hcm_mapppp_bundle(
     swarm = config.get("swarm", {})
     return MAPPPPBundle(
         package_metadata=PackageMetadata(
-            exported_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            exported_at=(exported_at or datetime.now(timezone.utc)).isoformat(timespec="seconds"),
             exporter="automation.exporters.mapppp.export_hcm_mapppp_bundle",
             swarm_name=swarm.get("name", "Unknown swarm"),
             swarm_description=swarm.get("description"),
