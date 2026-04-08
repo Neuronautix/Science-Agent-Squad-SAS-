@@ -169,6 +169,7 @@ def test_export_hcm_mapppp_bundle_preserves_traceability_and_proposal_status(tmp
     )
     risk_note = next(note for note in bundle.review_notes if note.note_id == "risk-note-1-1")
     assert risk_note.source_anchors[0].source_id == "[2]"
+    assert all(anchor.source_id != "Study_001" for anchor in risk_note.source_anchors)
     assert any(note.persona == "Reviewer-2" for note in bundle.review_notes)
 
     json.dumps(bundle.model_dump(mode="json"))
