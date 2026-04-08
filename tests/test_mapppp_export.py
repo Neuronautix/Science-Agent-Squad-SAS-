@@ -7,23 +7,50 @@ from automation.exporters.mapppp import HCM_METADATA_PERSONA, export_hcm_mapppp_
 from automation.main import app
 
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
-
-
 def _write_hcm_fixture_files(tmp_path: Path) -> tuple[Path, Path, Path, Path]:
-    config_path = REPO_ROOT / "swarm_config_hcmsas.yml"
+    config_text = """
+swarm:
+  name: "HCMSAS"
+  description: >
+    Home Cage Monitoring Scientific Agent Squad.
+    Investigates preclinical home cage monitoring research with emphasis on MNMS.
+  output_dir: "./Drafts/HCMSAS"
+  traceability_matrix: "./Knowledge_Traceability_Matrix_HCMSAS.md"
 
-    # Seed the fixture from the checked-in HCM example matrix so the test stays
-    # aligned with the repository's real HCM export inputs.
-    matrix_text = (REPO_ROOT / "Knowledge_Traceability_Matrix_HCMSAS.md").read_text(encoding="utf-8")
-    matrix_text += (
-        "| HCM-001 | [FACT] Continuous cage-side HCM can capture circadian locomotor activity in mice [1] | "
-        "[FACT] | DOI:10.1000/hcm.methods.2024 | Metadata Architect | temporal_structure | "
-        "Anchored to the methods paper. | active |\n"
-        "| HCM-002 | [INFERENCE] Cross-platform comparisons require explicit sensor equivalence [2] | "
-        "[INFERENCE] | DOI:10.1000/hcm.review.2025 | Reproducibility and Bias Auditor | acquisition_system | "
-        "Comparability risk noted in the review. | active |\n"
-    )
+personas:
+  - name: "Metadata Architect"
+    role: "MNMS extraction and metadata structure mapping"
+  - name: "Reproducibility and Bias Auditor"
+    role: "Comparability and confounder review"
+
+output_sections:
+  - "A. Research scope"
+  - "B. Key evidence summary"
+  - "C. Evidence table with in-text citations"
+  - "D. HCM MNMS mapping table"
+  - "E. Missing metadata and ambiguity report"
+  - "F. Knowledge graph schema proposal"
+  - "G. Reproducibility and comparability risks"
+  - "H. Conservative conclusions"
+  - "I. References"
+"""
+    config_path = tmp_path / "swarm_config_hcmsas.yml"
+    config_path.write_text(config_text.strip() + "\n", encoding="utf-8")
+
+    matrix_text = """# HCMSAS Knowledge Traceability Matrix
+
+## Traceability Log
+
+| claim_id | claim | epistemic_tag | source | agent | mnms_category | notes | status |
+|---|---|---|---|---|---|---|---|
+| HCM-000 | Matrix initialized for HCMSAS swarm | [FACT] | internal | HCMSAS_DrNexus | provenance_and_versioning | Baseline entry | active |
+
+---
+
+*Append new entries below this line.*
+| HCM-001 | Continuous cage-side HCM can capture circadian locomotor activity in mice [1] | [FACT] | DOI:10.1000/hcm.methods.2024 | Metadata Architect | temporal_structure | Anchored to the methods paper. | active |
+| HCM-002 | Cross-platform comparisons require explicit sensor equivalence [2] | [INFERENCE] | DOI:10.1000/hcm.review.2025 | Reproducibility and Bias Auditor | acquisition_system | Comparability risk noted in the review. | active |
+"""
     matrix_path = tmp_path / "Knowledge_Traceability_Matrix_HCMSAS.md"
     matrix_path.write_text(matrix_text, encoding="utf-8")
 
@@ -140,9 +167,29 @@ def test_export_hcm_mapppp_bundle_preserves_traceability_and_proposal_status(tmp
         graph.subject == "Study_001" and graph.predicate == "uses_system"
         for graph in bundle.candidate_graph_assertions
     )
+    risk_note = next(note for note in bundle.review_notes if note.note_id == "risk-note-1-1")
+    assert risk_note.source_anchors[0].source_id == "[2]"
     assert any(note.persona == "Reviewer-2" for note in bundle.review_notes)
 
     json.dumps(bundle.model_dump(mode="json"))
+
+
+def test_export_hcm_mapppp_bundle_raises_for_missing_explicit_review_notes_path(tmp_path: Path):
+    config_path, matrix_path, draft_path, _ = _write_hcm_fixture_files(tmp_path)
+
+    missing_notes_path = tmp_path / "missing-review-notes.json"
+
+    try:
+        export_hcm_mapppp_bundle(
+            config_path=config_path,
+            draft_path=draft_path,
+            traceability_matrix_path=matrix_path,
+            review_notes_path=missing_notes_path,
+        )
+    except FileNotFoundError as exc:
+        assert str(missing_notes_path) in str(exc)
+    else:
+        raise AssertionError("Expected FileNotFoundError for missing explicit review notes path")
 
 
 def test_export_mapppp_hcm_cli_writes_bundle_json(tmp_path: Path):

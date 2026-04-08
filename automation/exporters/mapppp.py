@@ -339,8 +339,10 @@ def _load_traceability_rows(traceability_matrix_path: Path) -> list[dict[str, st
 
 
 def _load_review_note_payload(review_notes_path: Path | None) -> list[dict[str, Any]]:
-    if review_notes_path is None or not review_notes_path.exists():
+    if review_notes_path is None:
         return []
+    if not review_notes_path.exists():
+        raise FileNotFoundError(f"Review notes file not found: {review_notes_path}")
     with open(review_notes_path, "r", encoding="utf-8") as handle:
         payload = json.load(handle)
     return payload if isinstance(payload, list) else []
@@ -492,7 +494,7 @@ def export_hcm_mapppp_bundle(
                     persona=HCM_RISK_PERSONA,
                     note=note,
                     note_type="risk_audit",
-                    source_anchors=_build_source_anchors(row.get("affected_studies"), citations, references),
+                    source_anchors=_build_source_anchors(None, citations, references),
                     in_text_citations=citations,
                 )
             )
