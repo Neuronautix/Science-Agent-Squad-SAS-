@@ -72,6 +72,7 @@ from automation.config import (
     validate_env,
     get_hitl_config,
 )
+from automation.exporters import export_hcm_mapppp_bundle
 from automation.graph import build_graph, Command  # Command re-exported from graph.py
 
 # Load environment configuration (.env)
@@ -91,6 +92,7 @@ review_app = typer.Typer(help="Configure reviewer policy and adversarial checks.
 model_app = typer.Typer(help="Configure model provider, model name, and env key.")
 metadata_app = typer.Typer(help="Configure swarm metadata, output paths, and epistemic tags.")
 tools_app = typer.Typer(help="Curate the active tool registry for the current swarm.")
+export_app = typer.Typer(help="Export existing swarm outputs into downstream packaging bundles.")
 app.add_typer(blueprint_app, name="blueprint")
 app.add_typer(persona_app, name="persona")
 app.add_typer(team_app, name="team")
@@ -98,6 +100,7 @@ app.add_typer(review_app, name="review")
 app.add_typer(model_app, name="model")
 app.add_typer(metadata_app, name="metadata")
 app.add_typer(tools_app, name="tools")
+app.add_typer(export_app, name="export")
 
 # ── Report-mode templates ─────────────────────────────────────────────────
 REPORT_MODES = {
@@ -1275,6 +1278,51 @@ def info():
     typer.secho(f"   Tone: {reviewer.get('tone', 'neutral')}")
 
     typer.echo()
+
+
+@export_app.command("mapppp-hcm")
+def export_mapppp_hcm(
+    output: Path = typer.Option(
+        Path("./Drafts/HCMSAS/mapppp_bundle.json"),
+        "--output",
+        help="Where to write the exported MAPPPP JSON bundle.",
+    ),
+    config_path: Path = typer.Option(
+        Path("./swarm_config_hcmsas.yml"),
+        "--config-path",
+        help="HCM swarm configuration used to infer package and study metadata.",
+    ),
+    draft_path: Path = typer.Option(
+        ...,
+        "--draft-path",
+        help="Journalist Markdown draft to package into a MAPPPP bundle.",
+    ),
+    traceability_matrix: Path = typer.Option(
+        Path("./Knowledge_Traceability_Matrix_HCMSAS.md"),
+        "--traceability-matrix",
+        help="Traceability matrix to preserve source anchors and provenance.",
+    ),
+    review_notes_path: Path | None = typer.Option(
+        None,
+        "--review-notes-path",
+        help="Optional JSON file containing reviewer/persona notes to include in the bundle.",
+    ),
+):
+    """Export existing HCMSAS outputs into a proposal-only MAPPPP JSON bundle."""
+    try:
+        bundle = export_hcm_mapppp_bundle(
+            config_path=config_path,
+            draft_path=draft_path,
+            traceability_matrix_path=traceability_matrix,
+            review_notes_path=review_notes_path,
+        )
+    except FileNotFoundError as e:
+        typer.secho(f"EXPORT ERROR: {e}", fg=typer.colors.RED)
+        raise typer.Exit(code=1)
+
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(bundle.model_dump_json(indent=2), encoding="utf-8")
+    typer.secho(f"✅ Wrote MAPPPP bundle to {output}", fg=typer.colors.GREEN)
 
 
 if __name__ == "__main__":

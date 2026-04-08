@@ -133,6 +133,7 @@ Useful options:
 
 - `python -m automation.main blueprint export --output ./blueprints/custom-team.swarm-blueprint.yml --overwrite`
 - `python -m automation.main blueprint import ./blueprints/custom-team.swarm-blueprint.yml --description "Focused evidence-mapping swarm" --yes`
+- `python -m automation.main export mapppp-hcm --draft-path ./Drafts/HCMSAS/final_report.md --output ./Drafts/HCMSAS/mapppp_bundle.json`
 
 ## Persona Squad
 
