@@ -151,6 +151,27 @@ swarm export mapppp-hcm --config-path /tmp/mapppp-smoke/swarm_config_hcmsas.yml 
 
 Expected output path: `/tmp/mapppp-smoke/mapppp_bundle.json`
 
+## HCM Pilot Baseline
+
+Frozen contract:
+
+- MAPPPP version: `0.1.0`
+- domain: `hcm`
+- checked-in shared fixture: [tests/fixtures/hcm_mapppp_pilot_baseline_v0_1_0.json](/home/dhuzard/projects/Science-Agent-Squad-SAS-/tests/fixtures/hcm_mapppp_pilot_baseline_v0_1_0.json)
+
+Canonical SAS export command:
+
+```bash
+python -m automation.main export mapppp-hcm --config-path /tmp/mapppp-smoke/swarm_config_hcmsas.yml --draft-path /tmp/mapppp-smoke/hcm_report.md --traceability-matrix /tmp/mapppp-smoke/Knowledge_Traceability_Matrix_HCMSAS.md --review-notes-path /tmp/mapppp-smoke/review_notes.json --output /tmp/mapppp-smoke/mapppp_bundle.json
+```
+
+Canonical OntoHistoria validate / ingest commands:
+
+```bash
+python -m mapppp validate /tmp/mapppp-smoke/mapppp_bundle.json
+ONTOHISTORIA_DATA_DIR=/tmp/ontohistoria-data python -m ontohistoria.mapppp_ingest /tmp/mapppp-smoke/mapppp_bundle.json
+```
+
 ## Persona Squad
 
 | Agent | Icon | Role | Technical Focus |

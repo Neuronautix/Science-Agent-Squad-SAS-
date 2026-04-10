@@ -1,4 +1,5 @@
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 
 from typer.testing import CliRunner
@@ -123,16 +124,19 @@ def _assert_provenance_shape(item: dict) -> None:
     assert "source_anchors" not in item["provenance"]
 
 
-def test_export_hcm_mapppp_bundle_matches_canonical_contract_shape(tmp_path: Path):
+def _export_fixture_payload(tmp_path: Path) -> dict:
     config_path, matrix_path, draft_path, notes_path = _write_hcm_fixture_files(tmp_path)
-
-    bundle = export_hcm_mapppp_bundle(
+    return export_hcm_mapppp_bundle(
         config_path=config_path,
         draft_path=draft_path,
         traceability_matrix_path=matrix_path,
         review_notes_path=notes_path,
-    )
-    payload = bundle.model_dump(mode="json", exclude_none=True)
+        exported_at=datetime(2026, 4, 10, 13, 11, 28, tzinfo=timezone.utc),
+    ).model_dump(mode="json", exclude_none=True)
+
+
+def test_export_hcm_mapppp_bundle_matches_canonical_contract_shape(tmp_path: Path):
+    payload = _export_fixture_payload(tmp_path)
 
     assert set(payload) == {
         "package_metadata",
@@ -221,13 +225,7 @@ def test_export_hcm_mapppp_bundle_matches_canonical_contract_shape(tmp_path: Pat
 
 
 def test_export_hcm_mapppp_bundle_matches_canonical_example_family(tmp_path: Path):
-    config_path, matrix_path, draft_path, notes_path = _write_hcm_fixture_files(tmp_path)
-    payload = export_hcm_mapppp_bundle(
-        config_path=config_path,
-        draft_path=draft_path,
-        traceability_matrix_path=matrix_path,
-        review_notes_path=notes_path,
-    ).model_dump(mode="json", exclude_none=True)
+    payload = _export_fixture_payload(tmp_path)
 
     expected_family = {
         "package_metadata": {
@@ -257,13 +255,7 @@ def test_export_hcm_mapppp_bundle_matches_canonical_example_family(tmp_path: Pat
 
 
 def test_export_hcm_mapppp_bundle_matches_validator_compatibility_expectations(tmp_path: Path):
-    config_path, matrix_path, draft_path, notes_path = _write_hcm_fixture_files(tmp_path)
-    payload = export_hcm_mapppp_bundle(
-        config_path=config_path,
-        draft_path=draft_path,
-        traceability_matrix_path=matrix_path,
-        review_notes_path=notes_path,
-    ).model_dump(mode="json", exclude_none=True)
+    payload = _export_fixture_payload(tmp_path)
 
     assert payload["package_metadata"]["domain_type"] in {"generic", "hcm"}
     allowed_epistemic_labels = {"reported", "extracted", "inferred", "normalized", "uncertain"}
@@ -280,6 +272,13 @@ def test_export_hcm_mapppp_bundle_matches_validator_compatibility_expectations(t
     for item in payload["review_notes"]:
         assert set(item["provenance"]) == {"source_id", "source_anchor", "proposed_by", "created_at"}
         assert "source_anchors" not in item["provenance"]
+
+
+def test_export_hcm_mapppp_bundle_matches_checked_in_pilot_baseline_fixture(tmp_path: Path):
+    payload = _export_fixture_payload(tmp_path)
+    fixture_path = Path(__file__).parent / "fixtures" / "hcm_mapppp_pilot_baseline_v0_1_0.json"
+    expected = json.loads(fixture_path.read_text(encoding="utf-8"))
+    assert payload == expected
 
 
 def test_export_hcm_mapppp_bundle_raises_for_missing_explicit_review_notes_path(tmp_path: Path):
