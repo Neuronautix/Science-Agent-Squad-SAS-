@@ -1,16 +1,18 @@
-# PIU Psych Swarm
+# Science-Agent-Squad
 
-A configurable multi-agent framework for psychiatric research on problematic internet use.
+A configurable multi-agent framework for scientific research, primarily focused on home cage monitoring (HCM) data.
 
-> The repository is preconfigured for psychiatric and behavioral-science work on problematic internet use, while remaining configurable for other research domains.
+> The repository is preconfigured for home cage monitoring (HCM) workflows while remaining configurable for other research domains.
 
 ## Focus
 
-PIU Psych Swarm is a LangGraph-based multi-agent system that researches, debates, and documents psychiatric questions about problematic internet use, including internet gaming disorder where relevant.
+Science-Agent-Squad is a LangGraph-based multi-agent system that researches, debates, and documents scientific questions, with the current primary application centered on preclinical home cage monitoring (HCM) data and metadata.
 
 The repository is currently optimized for:
 
-- clinically cautious synthesis that separates high engagement from impairment
+- HCM-focused evidence synthesis with explicit provenance
+- metadata extraction and normalization for preclinical studies
+- comparability-aware reporting across platforms, sensors, and classifier stacks
 - literature-backed summaries with in-text citations and references
 - reusable local knowledge bases for subagent-specific expertise
 - structured drafting workflows for reviews, evidence briefs, and study notes
@@ -26,11 +28,11 @@ Requirements:
 - `make`
 
 ```bash
-git clone https://github.com/dhuzard/piu-psych-swarm.git
-cd piu-psych-swarm
+git clone https://github.com/dhuzard/Science-Agent-Squad-SAS-.git
+cd Science-Agent-Squad-SAS-
 make setup
 make ingest
-make run PROMPT="Review the psychiatric literature on problematic internet use in adolescents, including prevalence, comorbidity, mechanisms, and interventions."
+make run PROMPT="Review the home cage monitoring literature in mice, including platform differences, metadata gaps, and comparability risks."
 ```
 
 If `make setup` fails because `python3` is missing, install it first. On Ubuntu or WSL:
@@ -47,14 +49,14 @@ After `make setup`, prefer the installed `swarm` command for CLI workflows. This
 Use PowerShell for native Windows setup. This avoids requiring GNU Make.
 
 ```powershell
-git clone https://github.com/dhuzard/piu-psych-swarm.git
-cd piu-psych-swarm
+git clone https://github.com/dhuzard/Science-Agent-Squad-SAS-.git
+cd Science-Agent-Squad-SAS-
 py -3 -m venv .venv
 .\.venv\Scripts\python -m pip install --upgrade pip
 .\.venv\Scripts\python -m pip install -e ".[dev]"
 if (-not (Test-Path .env)) { Copy-Item .env.example .env }
 .\.venv\Scripts\python -m automation.ingest
-.\.venv\Scripts\python -m automation.main execute "Review the psychiatric literature on problematic internet use in adolescents, including prevalence, comorbidity, mechanisms, and interventions."
+.\.venv\Scripts\python -m automation.main execute "Review the home cage monitoring literature in mice, including platform differences, metadata gaps, and comparability risks."
 ```
 
 ## Create Your Own Swarm
@@ -107,7 +109,7 @@ swarm init --no-interactive --domain "Climate Science" --name "Climate Science S
 For a non-interactive blueprint-based swarm:
 
 ```bash
-swarm init --no-interactive --template literature-mapping --domain "Behavioral Addiction" --name "Behavioral Addiction Map"
+swarm init --no-interactive --template literature-mapping --domain "Home Cage Monitoring" --name "HCM Evidence Map"
 ```
 
 ### Reusable Blueprints
@@ -127,8 +129,8 @@ Default behavior:
 Example:
 
 ```bash
-swarm blueprint export --name "Behavioral Addiction Team"
-swarm blueprint import ./blueprints/BehavioralAddictionTeam.swarm-blueprint.yml --domain "Sleep Research" --name "Sleep Research Team"
+swarm blueprint export --name "Science-Agent-Squad"
+swarm blueprint import ./blueprints/ScienceAgentSquad.swarm-blueprint.yml --domain "Home Cage Monitoring" --name "Science-Agent-Squad"
 ```
 
 Useful options:
@@ -147,6 +149,8 @@ python -m pip install -e ".[dev]"
 swarm export mapppp-hcm --config-path /tmp/mapppp-smoke/swarm_config_hcmsas.yml --draft-path /tmp/mapppp-smoke/hcm_report.md --traceability-matrix /tmp/mapppp-smoke/Knowledge_Traceability_Matrix_HCMSAS.md --review-notes-path /tmp/mapppp-smoke/review_notes.json --output /tmp/mapppp-smoke/mapppp_bundle.json
 ```
 
+Expected output path: `/tmp/mapppp-smoke/mapppp_bundle.json`
+
 ## Persona Squad
 
 | Agent | Icon | Role | Technical Focus |
@@ -164,13 +168,12 @@ swarm export mapppp-hcm --config-path /tmp/mapppp-smoke/swarm_config_hcmsas.yml 
 ```bash
 make ingest
 make info
-make run PROMPT="Create a scoping review outline for problematic internet use in university students."
+make run PROMPT="Create a scoping review outline for home cage monitoring platform comparability in mice."
 ```
 
 Useful working files:
 
-- Drafts/piu_prompt_set.md
-- Drafts/piu_study_workflow_template.md
+- Drafts/HCMSAS/
 - Article_Draft.md
 - Knowledge_Traceability_Matrix.md
 
@@ -178,10 +181,10 @@ Useful working files:
 
 | Tool | Purpose |
 | :--- | :--- |
-| search_pubmed | Search peer-reviewed biomedical and psychiatric literature |
+| search_pubmed | Search peer-reviewed biomedical and life-science literature |
 | trace_literature_network | Expand a major paper via its references and lead authors |
 | search_you_engine | Search the live web |
-| search_knowledge_base | Search local PIU literature packets in agents/*/KB/ |
+| search_knowledge_base | Search local HCM literature packets in agents/*/KB/ |
 | scrape_webpage | Pull full-text content from URLs |
 | append_traceability_matrix | Log evidence and epistemic status |
 | write_manuscript_section | Write markdown outputs into Drafts/ |
@@ -285,4 +288,4 @@ See [INTERACTIVE_SWARM_BUILDER_PLAN.md](INTERACTIVE_SWARM_BUILDER_PLAN.md) for t
 
 - The active team is controlled by swarm_config.yml.
 - KB ingestion and KB search now follow the configured personas rather than every folder under agents/.
-- The repository is currently curated for PIU-focused psychiatric research workflows.
+- The repository is currently curated for HCM-focused scientific research workflows.

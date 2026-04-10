@@ -1308,7 +1308,7 @@ def export_mapppp_hcm(
         help="Optional JSON file containing reviewer/persona notes to include in the bundle.",
     ),
 ):
-    """Export existing HCMSAS outputs into a proposal-only MAPPPP JSON bundle."""
+    """Export existing HCMSAS outputs into a canonical MAPPPP v0.1.0 JSON bundle."""
     try:
         bundle = export_hcm_mapppp_bundle(
             config_path=config_path,

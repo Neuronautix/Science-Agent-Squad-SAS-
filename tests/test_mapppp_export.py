@@ -1,10 +1,22 @@
 import json
 from pathlib import Path
 
+import pytest
 from typer.testing import CliRunner
 
 from automation.exporters.mapppp import HCM_METADATA_PERSONA, export_hcm_mapppp_bundle
-from automation.main import app
+
+
+def _collect_keys(value):
+    keys = set()
+    if isinstance(value, dict):
+        keys.update(value.keys())
+        for item in value.values():
+            keys.update(_collect_keys(item))
+    elif isinstance(value, list):
+        for item in value:
+            keys.update(_collect_keys(item))
+    return keys
 
 
 def _write_hcm_fixture_files(tmp_path: Path) -> tuple[Path, Path, Path, Path]:
@@ -119,7 +131,7 @@ This HCMSAS report focuses on preclinical home cage monitoring in mice [1].
     return config_path, matrix_path, draft_path, notes_path
 
 
-def test_export_hcm_mapppp_bundle_preserves_traceability_and_proposal_status(tmp_path: Path):
+def test_export_hcm_mapppp_bundle_emits_canonical_shape(tmp_path: Path):
     config_path, matrix_path, draft_path, notes_path = _write_hcm_fixture_files(tmp_path)
 
     bundle = export_hcm_mapppp_bundle(
@@ -137,20 +149,18 @@ def test_export_hcm_mapppp_bundle_preserves_traceability_and_proposal_status(tmp
 
     assert bundle.metadata_assertions
     assert bundle.evidence_assertions
-    assert bundle.candidate_mnms_mappings
-    assert bundle.candidate_graph_assertions
+    assert bundle.mapping_assertions
+    assert bundle.graph_assertions
     assert bundle.review_notes
 
     for collection in (
         bundle.metadata_assertions,
         bundle.evidence_assertions,
-        bundle.candidate_mnms_mappings,
-        bundle.candidate_graph_assertions,
+        bundle.mapping_assertions,
+        bundle.graph_assertions,
         bundle.review_notes,
     ):
-        assert all(item.proposal_level == "proposal" for item in collection)
-        assert all(item.accepted is False for item in collection)
-        assert all(item.curator_confirmed is False for item in collection)
+        assert all(item.status == "proposed" for item in collection)
 
     assert any(
         anchor.source_id == "DOI:10.1000/hcm.methods.2024"
@@ -162,18 +172,35 @@ def test_export_hcm_mapppp_bundle_preserves_traceability_and_proposal_status(tmp
         assertion.assertion_id.startswith("traceability-evidence-")
         for assertion in bundle.evidence_assertions
     )
-    assert any(mapping.classification == "MNMS_core" for mapping in bundle.candidate_mnms_mappings)
+    assert any(mapping.classification == "MNMS_core" for mapping in bundle.mapping_assertions)
     assert any(
         graph.subject == "Study_001" and graph.predicate == "uses_system"
-        for graph in bundle.candidate_graph_assertions
+        for graph in bundle.graph_assertions
     )
+    assert any(assertion.epistemic_label == "fact" for assertion in bundle.evidence_assertions)
+    assert any(assertion.epistemic_label == "missing" for assertion in bundle.metadata_assertions)
     risk_note = next(note for note in bundle.review_notes if note.note_id == "risk-note-1-1")
     assert risk_note.source_anchors
     assert risk_note.source_anchors[0].source_id == "[2]"
+    assert risk_note.disposition == "flag"
     assert all(anchor.source_id != "Study_001" for anchor in risk_note.source_anchors)
     assert any(note.persona == "Reviewer-2" for note in bundle.review_notes)
+    assert any(note.disposition == "request_changes" for note in bundle.review_notes)
 
-    json.dumps(bundle.model_dump(mode="json"))
+    payload = bundle.model_dump(mode="json")
+    top_level_keys = set(payload)
+    assert "mapping_assertions" in top_level_keys
+    assert "graph_assertions" in top_level_keys
+    assert "candidate_mnms_mappings" not in top_level_keys
+    assert "candidate_graph_assertions" not in top_level_keys
+
+    legacy_keys = _collect_keys(payload)
+    assert "proposal_level" not in legacy_keys
+    assert "accepted" not in legacy_keys
+    assert "curator_confirmed" not in legacy_keys
+    assert "note_type" not in legacy_keys
+
+    json.dumps(payload)
 
 
 def test_export_hcm_mapppp_bundle_raises_for_missing_explicit_review_notes_path(tmp_path: Path):
@@ -195,6 +222,9 @@ def test_export_hcm_mapppp_bundle_raises_for_missing_explicit_review_notes_path(
 
 
 def test_export_mapppp_hcm_cli_writes_bundle_json(tmp_path: Path):
+    pytest.importorskip("langgraph")
+    from automation.main import app
+
     config_path, matrix_path, draft_path, notes_path = _write_hcm_fixture_files(tmp_path)
     output_path = tmp_path / "mapppp_bundle.json"
 
@@ -220,5 +250,6 @@ def test_export_mapppp_hcm_cli_writes_bundle_json(tmp_path: Path):
     assert result.exit_code == 0, result.output
     payload = json.loads(output_path.read_text(encoding="utf-8"))
     assert payload["package_metadata"]["swarm_name"] == "HCMSAS"
-    assert payload["candidate_graph_assertions"][0]["accepted"] is False
+    assert payload["graph_assertions"][0]["status"] == "proposed"
     assert payload["review_notes"][-1]["persona"] == "Reviewer-2"
+    assert payload["review_notes"][-1]["disposition"] == "request_changes"

@@ -1,4 +1,4 @@
-"""MAPPPP proposal-only export support for downstream packaging."""
+"""MAPPPP v0.1.0 export support for downstream packaging."""
 
 from __future__ import annotations
 
@@ -35,6 +35,35 @@ _TRACEABILITY_HEADERS = [
 
 HCM_METADATA_PERSONA = "Metadata Architect"
 HCM_RISK_PERSONA = "Reproducibility and Bias Auditor"
+CANONICAL_PROPOSED_STATUS = "proposed"
+DEFAULT_EPISTEMIC_LABEL = "asserted"
+
+
+def _normalise_epistemic_label(value: str | None) -> str | None:
+    if not value:
+        return None
+    label = value.strip().lower()
+    if label.startswith("[") and label.endswith("]"):
+        label = label[1:-1].strip().lower()
+    return re.sub(r"[^a-z0-9]+", "_", label).strip("_") or None
+
+
+def _first_epistemic_label(*values: str) -> str:
+    for value in values:
+        for tag in _extract_epistemic_tags(value):
+            label = _normalise_epistemic_label(tag)
+            if label:
+                return label
+    return DEFAULT_EPISTEMIC_LABEL
+
+
+def _normalise_review_disposition(label: str | None, note: str | None) -> str:
+    text = " ".join(filter(None, [label, note])).lower()
+    if any(token in text for token in ("request_changes", "request changes", "change", "fix", "must", "do not", "require")):
+        return "request_changes"
+    if any(token in text for token in ("flag", "risk", "warning", "concern")):
+        return "flag"
+    return "comment"
 
 
 def _unique(values: list[str]) -> list[str]:
@@ -139,19 +168,13 @@ def _parse_references(section_text: str) -> dict[str, str]:
     return references
 
 
-class ProposalRecord(BaseModel):
-    proposal_level: str = "proposal"
-    accepted: bool = False
-    curator_confirmed: bool = False
-
-
 class SourceAnchor(BaseModel):
     source_id: str
     citation_markers: list[str] = Field(default_factory=list)
     reference_text: str | None = None
 
 
-class PackageMetadata(ProposalRecord):
+class PackageMetadata(BaseModel):
     exported_at: str
     exporter: str
     swarm_name: str
@@ -159,7 +182,7 @@ class PackageMetadata(ProposalRecord):
     swarm_output_dir: str | None = None
 
 
-class SourcePackageMetadata(ProposalRecord):
+class SourcePackageMetadata(BaseModel):
     config_path: str
     config_name: str
     draft_path: str
@@ -168,7 +191,7 @@ class SourcePackageMetadata(ProposalRecord):
     references: dict[str, str] = Field(default_factory=dict)
 
 
-class StudyContext(ProposalRecord):
+class StudyContext(BaseModel):
     domain: str | None = None
     species: str | None = None
     standards: list[str] = Field(default_factory=list)
@@ -176,18 +199,22 @@ class StudyContext(ProposalRecord):
     inferred_from: list[str] = Field(default_factory=list)
 
 
-class Assertion(ProposalRecord):
+class CanonicalRecord(BaseModel):
+    status: str = CANONICAL_PROPOSED_STATUS
+    epistemic_label: str = DEFAULT_EPISTEMIC_LABEL
+
+
+class Assertion(CanonicalRecord):
     assertion_id: str
     statement: str
     assertion_type: str
     persona: str | None = None
-    epistemic_tags: list[str] = Field(default_factory=list)
     source_anchors: list[SourceAnchor] = Field(default_factory=list)
     in_text_citations: list[str] = Field(default_factory=list)
     notes: str | None = None
 
 
-class MNMSMappingCandidate(ProposalRecord):
+class MappingAssertion(CanonicalRecord):
     mapping_id: str
     metadata_field: str
     value_or_status: str | None = None
@@ -198,7 +225,7 @@ class MNMSMappingCandidate(ProposalRecord):
     notes: str | None = None
 
 
-class GraphAssertionCandidate(ProposalRecord):
+class GraphAssertion(CanonicalRecord):
     assertion_id: str
     subject: str
     predicate: str
@@ -210,16 +237,17 @@ class GraphAssertionCandidate(ProposalRecord):
     notes: str | None = None
 
 
-class ReviewNote(ProposalRecord):
+class ReviewNote(BaseModel):
     note_id: str
     persona: str
     note: str
-    note_type: str = "persona_review"
+    disposition: str = "comment"
+    status: str = CANONICAL_PROPOSED_STATUS
     source_anchors: list[SourceAnchor] = Field(default_factory=list)
     in_text_citations: list[str] = Field(default_factory=list)
 
 
-class MAPPPPBundle(ProposalRecord):
+class MAPPPPBundle(BaseModel):
     schema_name: str = "mapppp-bundle"
     schema_version: str = "0.1.0"
     package_metadata: PackageMetadata
@@ -227,8 +255,8 @@ class MAPPPPBundle(ProposalRecord):
     study_context: StudyContext | None = None
     metadata_assertions: list[Assertion] = Field(default_factory=list)
     evidence_assertions: list[Assertion] = Field(default_factory=list)
-    candidate_mnms_mappings: list[MNMSMappingCandidate] = Field(default_factory=list)
-    candidate_graph_assertions: list[GraphAssertionCandidate] = Field(default_factory=list)
+    mapping_assertions: list[MappingAssertion] = Field(default_factory=list)
+    graph_assertions: list[GraphAssertion] = Field(default_factory=list)
     review_notes: list[ReviewNote] = Field(default_factory=list)
 
 
@@ -355,7 +383,7 @@ def export_hcm_mapppp_bundle(
     review_notes_path: str | Path | None = None,
     exported_at: datetime | None = None,
 ) -> MAPPPPBundle:
-    """Build a proposal-only MAPPPP bundle from existing HCM swarm artifacts.
+    """Build a canonical MAPPPP v0.1.0 bundle from existing HCM swarm artifacts.
 
     If provided, exported_at should be a timezone-aware datetime.
     """
@@ -373,8 +401,8 @@ def export_hcm_mapppp_bundle(
 
     metadata_assertions: list[Assertion] = []
     evidence_assertions: list[Assertion] = []
-    candidate_mnms_mappings: list[MNMSMappingCandidate] = []
-    candidate_graph_assertions: list[GraphAssertionCandidate] = []
+    mapping_assertions: list[MappingAssertion] = []
+    graph_assertions: list[GraphAssertion] = []
     review_notes: list[ReviewNote] = []
 
     for index, row in enumerate(traceability_rows, start=1):
@@ -391,7 +419,7 @@ def export_hcm_mapppp_bundle(
                 statement=statement,
                 assertion_type="traceability_claim",
                 persona=row.get("agent") or None,
-                epistemic_tags=_unique([row.get("epistemic_tag", "").strip()]),
+                epistemic_label=_first_epistemic_label(row.get("epistemic_tag", "")),
                 source_anchors=anchors,
                 in_text_citations=citations,
                 notes=row.get("notes") or None,
@@ -404,7 +432,7 @@ def export_hcm_mapppp_bundle(
                     statement=statement,
                     assertion_type="metadata_candidate",
                     persona=row.get("agent") or None,
-                    epistemic_tags=_unique([row.get("epistemic_tag", "").strip()]),
+                    epistemic_label=_first_epistemic_label(row.get("epistemic_tag", "")),
                     source_anchors=anchors,
                     in_text_citations=citations,
                     notes=row.get("mnms_category"),
@@ -424,7 +452,7 @@ def export_hcm_mapppp_bundle(
                     assertion_id=f"evidence-table-{index}-{row_index}",
                     statement=statement,
                     assertion_type=row.get("evidence_type") or "evidence_table_row",
-                    epistemic_tags=_extract_epistemic_tags(statement + " " + (notes or "")),
+                    epistemic_label=_first_epistemic_label(statement, notes or ""),
                     source_anchors=_build_source_anchors(source_id, citations, references),
                     in_text_citations=citations,
                     notes=notes,
@@ -435,13 +463,14 @@ def export_hcm_mapppp_bundle(
         for row_index, row in enumerate(table, start=1):
             notes = row.get("notes") or None
             citations = _extract_citations(" ".join(filter(None, [notes or "", row.get("source", "")])))
-            candidate_mnms_mappings.append(
-                MNMSMappingCandidate(
+            mapping_assertions.append(
+                MappingAssertion(
                     mapping_id=f"mnms-mapping-{index}-{row_index}",
                     metadata_field=row.get("metadata_field", ""),
                     value_or_status=row.get("value_or_status"),
                     mnms_category=row.get("mnms_category"),
                     classification=row.get("classification"),
+                    epistemic_label=_first_epistemic_label(notes or ""),
                     source_anchors=_build_source_anchors(row.get("source"), citations, references),
                     in_text_citations=citations,
                     notes=notes,
@@ -456,7 +485,7 @@ def export_hcm_mapppp_bundle(
                 statement=bullet,
                 assertion_type="metadata_gap",
                 persona=HCM_METADATA_PERSONA,
-                epistemic_tags=_extract_epistemic_tags(bullet),
+                epistemic_label=_first_epistemic_label(bullet),
                 source_anchors=_build_source_anchors(None, citations, references),
                 in_text_citations=citations,
             )
@@ -468,14 +497,15 @@ def export_hcm_mapppp_bundle(
                 continue
             notes = row.get("notes") or None
             citations = _extract_citations(" ".join(filter(None, [notes or "", row.get("source_id", "")])))
-            candidate_graph_assertions.append(
-                GraphAssertionCandidate(
+            graph_assertions.append(
+                GraphAssertion(
                     assertion_id=f"graph-assertion-{index}-{row_index}",
                     subject=row["subject"],
                     predicate=row["predicate"],
                     object=row["object"],
                     evidence_level=row.get("evidence_level"),
                     confidence=row.get("confidence"),
+                    epistemic_label=_first_epistemic_label(row.get("evidence_level", ""), notes or ""),
                     source_anchors=_build_source_anchors(row.get("source_id"), citations, references),
                     in_text_citations=citations,
                     notes=notes,
@@ -493,7 +523,7 @@ def export_hcm_mapppp_bundle(
                     note_id=f"risk-note-{index}-{row_index}",
                     persona=HCM_RISK_PERSONA,
                     note=note,
-                    note_type="risk_audit",
+                    disposition=_normalise_review_disposition("risk_audit", note),
                     source_anchors=_build_source_anchors(
                         source_id=None,
                         citations=citations,
@@ -516,7 +546,7 @@ def export_hcm_mapppp_bundle(
                 note_id=f"external-review-note-{index}",
                 persona=str(payload.get("persona", "Reviewer-2")),
                 note=note,
-                note_type=str(payload.get("note_type", "persona_review")),
+                disposition=_normalise_review_disposition(str(payload.get("note_type", "persona_review")), note),
                 source_anchors=_build_source_anchors(payload.get("source_anchor"), citations, references),
                 in_text_citations=citations,
             )
@@ -542,7 +572,7 @@ def export_hcm_mapppp_bundle(
         study_context=_infer_study_context(config, draft_text),
         metadata_assertions=metadata_assertions,
         evidence_assertions=evidence_assertions,
-        candidate_mnms_mappings=candidate_mnms_mappings,
-        candidate_graph_assertions=candidate_graph_assertions,
+        mapping_assertions=mapping_assertions,
+        graph_assertions=graph_assertions,
         review_notes=review_notes,
     )
