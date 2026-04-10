@@ -1,4 +1,4 @@
-"""MAPPPP v0.1.0 export support for downstream packaging."""
+"""Canonical MAPPPP v0.1.0 export support for downstream packaging."""
 
 from __future__ import annotations
 
@@ -32,38 +32,23 @@ _TRACEABILITY_HEADERS = [
     "notes",
     "status",
 ]
+_EPISTEMIC_LABEL_MAP = {
+    "[FACT]": "observed",
+    "[INFERENCE]": "inferred",
+    "[SPECULATION]": "speculative",
+    "[MISSING]": "missing_information",
+    "[MISSING SOURCE]": "missing_information",
+    "[PLATFORM-SPECIFIC]": "context_specific",
+    "[CONTESTED]": "disputed",
+}
 
 HCM_METADATA_PERSONA = "Metadata Architect"
 HCM_RISK_PERSONA = "Reproducibility and Bias Auditor"
 CANONICAL_PROPOSED_STATUS = "proposed"
 DEFAULT_EPISTEMIC_LABEL = "asserted"
-
-
-def _normalise_epistemic_label(value: str | None) -> str | None:
-    if not value:
-        return None
-    label = value.strip().lower()
-    if label.startswith("[") and label.endswith("]"):
-        label = label[1:-1].strip().lower()
-    return re.sub(r"[^a-z0-9]+", "_", label).strip("_") or None
-
-
-def _first_epistemic_label(*values: str) -> str:
-    for value in values:
-        for tag in _extract_epistemic_tags(value):
-            label = _normalise_epistemic_label(tag)
-            if label:
-                return label
-    return DEFAULT_EPISTEMIC_LABEL
-
-
-def _normalise_review_disposition(label: str | None, note: str | None) -> str:
-    text = " ".join(filter(None, [label, note])).lower()
-    if any(token in text for token in ("request_changes", "request changes", "change", "fix", "must", "do not", "require")):
-        return "request_changes"
-    if any(token in text for token in ("flag", "risk", "warning", "concern")):
-        return "flag"
-    return "comment"
+CONTRACT_NAME = "MAPPPP"
+CONTRACT_VERSION = "0.1.0"
+DOMAIN_TYPE = "home_cage_monitoring"
 
 
 def _unique(values: list[str]) -> list[str]:
@@ -87,6 +72,37 @@ def _extract_epistemic_tags(text: str) -> list[str]:
 
 def _normalise_header(header: str) -> str:
     return re.sub(r"[^a-z0-9]+", "_", header.strip().lower()).strip("_")
+
+
+def _slugify(value: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "_", (value or "").strip().lower()).strip("_")
+
+
+def _strip_epistemic_and_citations(text: str) -> str:
+    cleaned = text or ""
+    for tag in _KNOWN_EPISTEMIC_TAGS:
+        cleaned = cleaned.replace(tag, "")
+    cleaned = _CITATION_RE.sub("", cleaned)
+    return re.sub(r"\s+", " ", cleaned).strip(" .")
+
+
+def _first_epistemic_label(*values: str) -> str:
+    for value in values:
+        for tag in _extract_epistemic_tags(value):
+            return _EPISTEMIC_LABEL_MAP.get(tag, DEFAULT_EPISTEMIC_LABEL)
+    return DEFAULT_EPISTEMIC_LABEL
+
+
+def _normalise_review_disposition(label: str | None, note: str | None) -> str:
+    text = " ".join(filter(None, [label, note])).lower()
+    if any(
+        token in text
+        for token in ("request_changes", "request changes", "change", "fix", "must", "do not", "require")
+    ):
+        return "request_changes"
+    if any(token in text for token in ("flag", "risk", "warning", "concern", "limiting", "omitted")):
+        return "flag"
+    return "comment"
 
 
 def _parse_markdown_table(lines: list[str]) -> list[dict[str, str]]:
@@ -174,87 +190,78 @@ class SourceAnchor(BaseModel):
     reference_text: str | None = None
 
 
+class Provenance(BaseModel):
+    source_anchors: list[SourceAnchor] = Field(default_factory=list)
+
+
 class PackageMetadata(BaseModel):
-    exported_at: str
-    exporter: str
-    swarm_name: str
-    swarm_description: str | None = None
-    swarm_output_dir: str | None = None
-
-
-class SourcePackageMetadata(BaseModel):
-    config_path: str
-    config_name: str
-    draft_path: str
-    traceability_matrix_path: str
-    review_notes_path: str | None = None
-    references: dict[str, str] = Field(default_factory=dict)
+    package_id: str
+    created_at: str
+    created_by: str
+    contract_name: str = CONTRACT_NAME
+    contract_version: str = CONTRACT_VERSION
+    domain_type: str = DOMAIN_TYPE
 
 
 class StudyContext(BaseModel):
-    domain: str | None = None
     species: str | None = None
-    standards: list[str] = Field(default_factory=list)
-    output_sections: list[str] = Field(default_factory=list)
-    inferred_from: list[str] = Field(default_factory=list)
 
 
-class CanonicalRecord(BaseModel):
+class MetadataAssertion(BaseModel):
+    assertion_id: str
     status: str = CANONICAL_PROPOSED_STATUS
     epistemic_label: str = DEFAULT_EPISTEMIC_LABEL
+    provenance: Provenance = Field(default_factory=Provenance)
+    field: str
+    value: str
 
 
-class Assertion(CanonicalRecord):
+class EvidenceAssertion(BaseModel):
     assertion_id: str
-    statement: str
-    assertion_type: str
-    persona: str | None = None
-    source_anchors: list[SourceAnchor] = Field(default_factory=list)
-    in_text_citations: list[str] = Field(default_factory=list)
-    notes: str | None = None
+    status: str = CANONICAL_PROPOSED_STATUS
+    epistemic_label: str = DEFAULT_EPISTEMIC_LABEL
+    provenance: Provenance = Field(default_factory=Provenance)
+    subject: str
+    observation: str
+    value: str
 
 
-class MappingAssertion(CanonicalRecord):
-    mapping_id: str
-    metadata_field: str
-    value_or_status: str | None = None
-    mnms_category: str | None = None
-    classification: str | None = None
-    source_anchors: list[SourceAnchor] = Field(default_factory=list)
-    in_text_citations: list[str] = Field(default_factory=list)
-    notes: str | None = None
-
-
-class GraphAssertion(CanonicalRecord):
+class MappingAssertion(BaseModel):
     assertion_id: str
+    status: str = CANONICAL_PROPOSED_STATUS
+    epistemic_label: str = DEFAULT_EPISTEMIC_LABEL
+    provenance: Provenance = Field(default_factory=Provenance)
+    local_field: str
+    target_schema: str
+    target_field: str
+    mapping_rationale: str
+    confidence: float
+
+
+class GraphAssertion(BaseModel):
+    assertion_id: str
+    status: str = CANONICAL_PROPOSED_STATUS
+    epistemic_label: str = DEFAULT_EPISTEMIC_LABEL
+    provenance: Provenance = Field(default_factory=Provenance)
     subject: str
     predicate: str
     object: str
-    evidence_level: str | None = None
-    confidence: str | None = None
-    source_anchors: list[SourceAnchor] = Field(default_factory=list)
-    in_text_citations: list[str] = Field(default_factory=list)
-    notes: str | None = None
+    object_type: str | None = None
 
 
 class ReviewNote(BaseModel):
     note_id: str
-    persona: str
+    disposition: str
     note: str
-    disposition: str = "comment"
-    status: str = CANONICAL_PROPOSED_STATUS
-    source_anchors: list[SourceAnchor] = Field(default_factory=list)
-    in_text_citations: list[str] = Field(default_factory=list)
+    provenance: Provenance = Field(default_factory=Provenance)
+    related_assertion_ids: list[str] = Field(default_factory=list)
 
 
 class MAPPPPBundle(BaseModel):
-    schema_name: str = "mapppp-bundle"
-    schema_version: str = "0.1.0"
     package_metadata: PackageMetadata
-    source_package_metadata: SourcePackageMetadata
     study_context: StudyContext | None = None
-    metadata_assertions: list[Assertion] = Field(default_factory=list)
-    evidence_assertions: list[Assertion] = Field(default_factory=list)
+    metadata_assertions: list[MetadataAssertion] = Field(default_factory=list)
+    evidence_assertions: list[EvidenceAssertion] = Field(default_factory=list)
     mapping_assertions: list[MappingAssertion] = Field(default_factory=list)
     graph_assertions: list[GraphAssertion] = Field(default_factory=list)
     review_notes: list[ReviewNote] = Field(default_factory=list)
@@ -289,7 +296,11 @@ def _build_source_anchors(
     return anchors
 
 
-def _infer_study_context(config: dict[str, Any], draft_text: str) -> StudyContext:
+def _provenance(source_id: str | None, citations: list[str], references: dict[str, str]) -> Provenance:
+    return Provenance(source_anchors=_build_source_anchors(source_id, citations, references))
+
+
+def _infer_species(config: dict[str, Any], draft_text: str) -> str | None:
     swarm = config.get("swarm", {})
     text_blob = " ".join(
         [
@@ -300,29 +311,13 @@ def _infer_study_context(config: dict[str, Any], draft_text: str) -> StudyContex
         ]
     ).lower()
 
-    domain = None
-    if "home cage monitoring" in text_blob:
-        domain = "preclinical home cage monitoring"
-
-    species = None
     if re.search(r"\b(mice|mouse|murine|c57bl/6)\b", text_blob):
-        species = "mouse"
-    elif re.search(r"\b(rats|rat)\b", text_blob):
-        species = "rat"
-    elif re.search(r"\brodent(s)?\b", text_blob):
-        species = "rodent"
-
-    standards = []
-    if "mnms" in text_blob:
-        standards.append("MNMS")
-
-    return StudyContext(
-        domain=domain,
-        species=species,
-        standards=standards,
-        output_sections=list(config.get("output_sections", [])),
-        inferred_from=["swarm config", "journalist draft"],
-    )
+        return "mouse"
+    if re.search(r"\b(rats|rat)\b", text_blob):
+        return "rat"
+    if re.search(r"\brodent(s)?\b", text_blob):
+        return "rodent"
+    return None
 
 
 def _load_traceability_rows(traceability_matrix_path: Path) -> list[dict[str, str]]:
@@ -356,8 +351,6 @@ def _load_traceability_rows(traceability_matrix_path: Path) -> list[dict[str, st
         if rows:
             return rows
 
-    # Fallback for traceability files that still keep rows inside a contiguous
-    # Markdown table block instead of appending them after the template footer.
     tables = _extract_markdown_tables(text)
     for table in tables:
         headers = set(table[0].keys()) if table else set()
@@ -376,6 +369,84 @@ def _load_review_note_payload(review_notes_path: Path | None) -> list[dict[str, 
     return payload if isinstance(payload, list) else []
 
 
+def _mapping_confidence(classification: str | None, value_or_status: str | None) -> float:
+    classification_key = (classification or "").strip().lower()
+    value_key = (value_or_status or "").strip().lower()
+    if classification_key == "mnms_core":
+        return 0.95
+    if classification_key in {"recommended", "extension_candidate"}:
+        return 0.8
+    if classification_key == "missing_in_source" or value_key == "missing":
+        return 0.55
+    return 0.7
+
+
+def _metadata_gap_field_and_value(text: str) -> tuple[str, str]:
+    cleaned = _strip_epistemic_and_citations(text)
+    lowered = cleaned.lower()
+    if " was not reported" in lowered:
+        prefix = cleaned[: lowered.index(" was not reported")].strip(" .")
+        return _slugify(prefix), "not reported"
+    if " remains inconsistent" in lowered:
+        prefix = cleaned[: lowered.index(" remains inconsistent")].strip(" .")
+        return _slugify(prefix), "inconsistent"
+    return _slugify(cleaned[:80]), cleaned
+
+
+def _object_type_from_value(value: str) -> str | None:
+    if not value:
+        return None
+    if value.startswith("HCM_System_"):
+        return "HCM_System"
+    if value.endswith("_Gap") or value.endswith("Gap"):
+        return "Gap"
+    return None
+
+
+def _collect_anchor_tokens(provenance: Provenance) -> set[str]:
+    tokens: set[str] = set()
+    for anchor in provenance.source_anchors:
+        tokens.add(anchor.source_id.lower())
+        for citation in anchor.citation_markers:
+            tokens.add(citation.lower())
+    return tokens
+
+
+def _related_assertion_ids(
+    note: str,
+    provenance: Provenance,
+    metadata_assertions: list[MetadataAssertion],
+    evidence_assertions: list[EvidenceAssertion],
+    mapping_assertions: list[MappingAssertion],
+    graph_assertions: list[GraphAssertion],
+) -> list[str]:
+    note_text = (note or "").lower()
+    note_anchor_tokens = _collect_anchor_tokens(provenance)
+    related: list[str] = []
+
+    for assertion in metadata_assertions:
+        if assertion.field in note_text or note_anchor_tokens & _collect_anchor_tokens(assertion.provenance):
+            related.append(assertion.assertion_id)
+    for assertion in evidence_assertions:
+        if note_anchor_tokens & _collect_anchor_tokens(assertion.provenance):
+            related.append(assertion.assertion_id)
+    for assertion in mapping_assertions:
+        if assertion.local_field in note_text or assertion.target_field in note_text:
+            related.append(assertion.assertion_id)
+            continue
+        if note_anchor_tokens & _collect_anchor_tokens(assertion.provenance):
+            related.append(assertion.assertion_id)
+    for assertion in graph_assertions:
+        graph_blob = " ".join([assertion.subject, assertion.predicate, assertion.object]).lower()
+        if any(token in note_text for token in graph_blob.split()):
+            related.append(assertion.assertion_id)
+            continue
+        if note_anchor_tokens & _collect_anchor_tokens(assertion.provenance):
+            related.append(assertion.assertion_id)
+
+    return _unique(related)
+
+
 def export_hcm_mapppp_bundle(
     config_path: str | Path,
     draft_path: str | Path,
@@ -383,10 +454,7 @@ def export_hcm_mapppp_bundle(
     review_notes_path: str | Path | None = None,
     exported_at: datetime | None = None,
 ) -> MAPPPPBundle:
-    """Build a canonical MAPPPP v0.1.0 bundle from existing HCM swarm artifacts.
-
-    If provided, exported_at should be a timezone-aware datetime.
-    """
+    """Build a canonical MAPPPP v0.1.0 bundle from existing HCM swarm artifacts."""
     config_path = Path(config_path)
     draft_path = Path(draft_path)
     traceability_matrix_path = Path(traceability_matrix_path)
@@ -399,8 +467,13 @@ def export_hcm_mapppp_bundle(
     references = _parse_references(sections.get("I", ""))
     traceability_rows = _load_traceability_rows(traceability_matrix_path)
 
-    metadata_assertions: list[Assertion] = []
-    evidence_assertions: list[Assertion] = []
+    exported_timestamp = exported_at or datetime.now(timezone.utc)
+    swarm = config.get("swarm", {})
+    swarm_slug = _slugify(swarm.get("name", "science_agent_squad")) or "science_agent_squad"
+    package_id = f"{swarm_slug}-mapppp-{exported_timestamp.strftime('%Y%m%dT%H%M%SZ')}"
+
+    metadata_assertions: list[MetadataAssertion] = []
+    evidence_assertions: list[EvidenceAssertion] = []
     mapping_assertions: list[MappingAssertion] = []
     graph_assertions: list[GraphAssertion] = []
     review_notes: list[ReviewNote] = []
@@ -412,30 +485,27 @@ def export_hcm_mapppp_bundle(
         if not statement or statement.lower().startswith("matrix initialized"):
             continue
         citations = _extract_citations(statement + " " + row.get("notes", ""))
-        anchors = _build_source_anchors(row.get("source"), citations, references)
+        provenance = _provenance(row.get("source"), citations, references)
+        cleaned_statement = _strip_epistemic_and_citations(statement)
+        epistemic_label = _first_epistemic_label(row.get("epistemic_tag", ""))
         evidence_assertions.append(
-            Assertion(
+            EvidenceAssertion(
                 assertion_id=f"traceability-evidence-{index}",
-                statement=statement,
-                assertion_type="traceability_claim",
-                persona=row.get("agent") or None,
-                epistemic_label=_first_epistemic_label(row.get("epistemic_tag", "")),
-                source_anchors=anchors,
-                in_text_citations=citations,
-                notes=row.get("notes") or None,
+                subject=row.get("source") or "reported_study",
+                observation=cleaned_statement,
+                value=row.get("notes") or cleaned_statement,
+                epistemic_label=epistemic_label,
+                provenance=provenance,
             )
         )
         if row.get("mnms_category"):
             metadata_assertions.append(
-                Assertion(
+                MetadataAssertion(
                     assertion_id=f"traceability-metadata-{index}",
-                    statement=statement,
-                    assertion_type="metadata_candidate",
-                    persona=row.get("agent") or None,
-                    epistemic_label=_first_epistemic_label(row.get("epistemic_tag", "")),
-                    source_anchors=anchors,
-                    in_text_citations=citations,
-                    notes=row.get("mnms_category"),
+                    field=_slugify(row.get("mnms_category", "")),
+                    value=cleaned_statement,
+                    epistemic_label=epistemic_label,
+                    provenance=provenance,
                 )
             )
 
@@ -444,50 +514,64 @@ def export_hcm_mapppp_bundle(
             statement = row.get("claim") or row.get("assertion") or row.get("evidence") or ""
             if not statement:
                 continue
-            notes = row.get("notes") or row.get("method") or None
-            citations = _extract_citations(" ".join([statement, notes or ""]))
+            notes = row.get("notes") or row.get("method") or ""
+            citations = _extract_citations(" ".join([statement, notes]))
             source_id = row.get("source_anchor") or row.get("source") or row.get("doi")
+            cleaned_statement = _strip_epistemic_and_citations(statement)
             evidence_assertions.append(
-                Assertion(
+                EvidenceAssertion(
                     assertion_id=f"evidence-table-{index}-{row_index}",
-                    statement=statement,
-                    assertion_type=row.get("evidence_type") or "evidence_table_row",
-                    epistemic_label=_first_epistemic_label(statement, notes or ""),
-                    source_anchors=_build_source_anchors(source_id, citations, references),
-                    in_text_citations=citations,
-                    notes=notes,
+                    subject=row.get("evidence_type") or "evidence_observation",
+                    observation=cleaned_statement,
+                    value=_strip_epistemic_and_citations(notes) or cleaned_statement,
+                    epistemic_label=_first_epistemic_label(statement, notes),
+                    provenance=_provenance(source_id, citations, references),
                 )
             )
 
     for index, table in enumerate(_extract_markdown_tables(sections.get("D", "")), start=1):
         for row_index, row in enumerate(table, start=1):
-            notes = row.get("notes") or None
-            citations = _extract_citations(" ".join(filter(None, [notes or "", row.get("source", "")])))
+            notes = row.get("notes") or ""
+            citations = _extract_citations(" ".join(filter(None, [notes, row.get("source", "")])))
+            epistemic_label = (
+                "missing_information"
+                if (row.get("value_or_status") or "").strip().lower() == "missing"
+                else _first_epistemic_label(notes)
+            )
             mapping_assertions.append(
                 MappingAssertion(
-                    mapping_id=f"mnms-mapping-{index}-{row_index}",
-                    metadata_field=row.get("metadata_field", ""),
-                    value_or_status=row.get("value_or_status"),
-                    mnms_category=row.get("mnms_category"),
-                    classification=row.get("classification"),
-                    epistemic_label=_first_epistemic_label(notes or ""),
-                    source_anchors=_build_source_anchors(row.get("source"), citations, references),
-                    in_text_citations=citations,
-                    notes=notes,
+                    assertion_id=f"mapping-assertion-{index}-{row_index}",
+                    local_field=_slugify(row.get("metadata_field", "")),
+                    target_schema="MNMS",
+                    target_field=_slugify(row.get("mnms_category", "")),
+                    mapping_rationale=" ".join(
+                        part for part in [row.get("classification"), _strip_epistemic_and_citations(notes)] if part
+                    ),
+                    confidence=_mapping_confidence(row.get("classification"), row.get("value_or_status")),
+                    epistemic_label=epistemic_label,
+                    provenance=_provenance(row.get("source"), citations, references),
+                )
+            )
+            metadata_assertions.append(
+                MetadataAssertion(
+                    assertion_id=f"mapping-metadata-{index}-{row_index}",
+                    field=_slugify(row.get("metadata_field", "")),
+                    value=str(row.get("value_or_status") or ""),
+                    epistemic_label=epistemic_label,
+                    provenance=_provenance(row.get("source"), citations, references),
                 )
             )
 
     for index, bullet in enumerate(_extract_bullets(sections.get("E", "")), start=1):
         citations = _extract_citations(bullet)
+        field, value = _metadata_gap_field_and_value(bullet)
         metadata_assertions.append(
-            Assertion(
+            MetadataAssertion(
                 assertion_id=f"metadata-gap-{index}",
-                statement=bullet,
-                assertion_type="metadata_gap",
-                persona=HCM_METADATA_PERSONA,
+                field=field,
+                value=value,
                 epistemic_label=_first_epistemic_label(bullet),
-                source_anchors=_build_source_anchors(None, citations, references),
-                in_text_citations=citations,
+                provenance=_provenance(None, citations, references),
             )
         )
 
@@ -495,20 +579,17 @@ def export_hcm_mapppp_bundle(
         for row_index, row in enumerate(table, start=1):
             if not {"subject", "predicate", "object"}.issubset(row.keys()):
                 continue
-            notes = row.get("notes") or None
-            citations = _extract_citations(" ".join(filter(None, [notes or "", row.get("source_id", "")])))
+            notes = row.get("notes") or ""
+            citations = _extract_citations(" ".join(filter(None, [notes, row.get("source_id", "")])))
             graph_assertions.append(
                 GraphAssertion(
                     assertion_id=f"graph-assertion-{index}-{row_index}",
                     subject=row["subject"],
                     predicate=row["predicate"],
                     object=row["object"],
-                    evidence_level=row.get("evidence_level"),
-                    confidence=row.get("confidence"),
-                    epistemic_label=_first_epistemic_label(row.get("evidence_level", ""), notes or ""),
-                    source_anchors=_build_source_anchors(row.get("source_id"), citations, references),
-                    in_text_citations=citations,
-                    notes=notes,
+                    object_type=_object_type_from_value(row["object"]),
+                    epistemic_label=_first_epistemic_label(row.get("evidence_level", ""), notes),
+                    provenance=_provenance(row.get("source_id"), citations, references),
                 )
             )
 
@@ -518,18 +599,21 @@ def export_hcm_mapppp_bundle(
             if not note:
                 continue
             citations = _extract_citations(note)
+            provenance = _provenance(None, citations, references)
             review_notes.append(
                 ReviewNote(
                     note_id=f"risk-note-{index}-{row_index}",
-                    persona=HCM_RISK_PERSONA,
-                    note=note,
                     disposition=_normalise_review_disposition("risk_audit", note),
-                    source_anchors=_build_source_anchors(
-                        source_id=None,
-                        citations=citations,
-                        references=references,
+                    note=_strip_epistemic_and_citations(note),
+                    provenance=provenance,
+                    related_assertion_ids=_related_assertion_ids(
+                        note,
+                        provenance,
+                        metadata_assertions,
+                        evidence_assertions,
+                        mapping_assertions,
+                        graph_assertions,
                     ),
-                    in_text_citations=citations,
                 )
             )
 
@@ -541,35 +625,35 @@ def export_hcm_mapppp_bundle(
             [str(citation) for citation in payload.get("citations", []) if citation]
             + _extract_citations(note)
         )
+        provenance = _provenance(payload.get("source_anchor"), citations, references)
         review_notes.append(
             ReviewNote(
                 note_id=f"external-review-note-{index}",
-                persona=str(payload.get("persona", "Reviewer-2")),
-                note=note,
                 disposition=_normalise_review_disposition(str(payload.get("note_type", "persona_review")), note),
-                source_anchors=_build_source_anchors(payload.get("source_anchor"), citations, references),
-                in_text_citations=citations,
+                note=_strip_epistemic_and_citations(note),
+                provenance=provenance,
+                related_assertion_ids=_related_assertion_ids(
+                    note,
+                    provenance,
+                    metadata_assertions,
+                    evidence_assertions,
+                    mapping_assertions,
+                    graph_assertions,
+                ),
             )
         )
 
-    swarm = config.get("swarm", {})
+    study_context = StudyContext(species=_infer_species(config, draft_text))
+    if study_context.species is None:
+        study_context = None
+
     return MAPPPPBundle(
         package_metadata=PackageMetadata(
-            exported_at=(exported_at or datetime.now(timezone.utc)).isoformat(timespec="seconds"),
-            exporter="automation.exporters.mapppp.export_hcm_mapppp_bundle",
-            swarm_name=swarm.get("name", "Unknown swarm"),
-            swarm_description=swarm.get("description"),
-            swarm_output_dir=swarm.get("output_dir"),
+            package_id=package_id,
+            created_at=exported_timestamp.isoformat(timespec="seconds"),
+            created_by="automation.exporters.mapppp.export_hcm_mapppp_bundle",
         ),
-        source_package_metadata=SourcePackageMetadata(
-            config_path=str(config_path.resolve()),
-            config_name=config_path.name,
-            draft_path=str(draft_path.resolve()),
-            traceability_matrix_path=str(traceability_matrix_path.resolve()),
-            review_notes_path=str(review_notes_path.resolve()) if review_notes_path else None,
-            references=references,
-        ),
-        study_context=_infer_study_context(config, draft_text),
+        study_context=study_context,
         metadata_assertions=metadata_assertions,
         evidence_assertions=evidence_assertions,
         mapping_assertions=mapping_assertions,

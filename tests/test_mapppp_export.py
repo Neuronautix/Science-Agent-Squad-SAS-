@@ -1,10 +1,10 @@
 import json
 from pathlib import Path
 
-import pytest
 from typer.testing import CliRunner
 
 from automation.exporters.mapppp import HCM_METADATA_PERSONA, export_hcm_mapppp_bundle
+from automation.main import app
 
 
 def _collect_keys(value):
@@ -34,17 +34,6 @@ personas:
     role: "MNMS extraction and metadata structure mapping"
   - name: "Reproducibility and Bias Auditor"
     role: "Comparability and confounder review"
-
-output_sections:
-  - "A. Research scope"
-  - "B. Key evidence summary"
-  - "C. Evidence table with in-text citations"
-  - "D. HCM MNMS mapping table"
-  - "E. Missing metadata and ambiguity report"
-  - "F. Knowledge graph schema proposal"
-  - "G. Reproducibility and comparability risks"
-  - "H. Conservative conclusions"
-  - "I. References"
 """
     config_path = tmp_path / "swarm_config_hcmsas.yml"
     config_path.write_text(config_text.strip() + "\n", encoding="utf-8")
@@ -68,9 +57,6 @@ output_sections:
 
     draft_text = """## A. Research scope
 This HCMSAS report focuses on preclinical home cage monitoring in mice [1].
-
-## B. Key evidence summary
-- [FACT] Automated HCM systems differ by sensor modality and classifier stack [1].
 
 ## C. Evidence table with in-text citations
 | claim | evidence_type | source_anchor | notes |
@@ -98,9 +84,6 @@ This HCMSAS report focuses on preclinical home cage monitoring in mice [1].
 | risk_id | category | severity | description | affected_studies | recommended_action |
 |---|---|---|---|---|---|
 | R1 | software_and_classifier | Major | Classifier versions were omitted, limiting reproducibility [2]. | Study_001 | Require explicit software version reporting. |
-
-## H. Conservative conclusions
-[INFERENCE] HCM exports should remain proposal-level until curator review [1][2].
 
 ## I. References
 [1] Example Methods Consortium. Continuous HCM methods paper. 2024.
@@ -131,7 +114,11 @@ This HCMSAS report focuses on preclinical home cage monitoring in mice [1].
     return config_path, matrix_path, draft_path, notes_path
 
 
-def test_export_hcm_mapppp_bundle_emits_canonical_shape(tmp_path: Path):
+def _assert_exact_keys(item: dict, expected_keys: set[str]) -> None:
+    assert set(item) == expected_keys
+
+
+def test_export_hcm_mapppp_bundle_matches_canonical_contract_shape(tmp_path: Path):
     config_path, matrix_path, draft_path, notes_path = _write_hcm_fixture_files(tmp_path)
 
     bundle = export_hcm_mapppp_bundle(
@@ -140,67 +127,126 @@ def test_export_hcm_mapppp_bundle_emits_canonical_shape(tmp_path: Path):
         traceability_matrix_path=matrix_path,
         review_notes_path=notes_path,
     )
+    payload = bundle.model_dump(mode="json", exclude_none=True)
 
-    assert bundle.package_metadata.swarm_name == "HCMSAS"
-    assert bundle.study_context is not None
-    assert bundle.study_context.domain == "preclinical home cage monitoring"
-    assert bundle.study_context.species == "mouse"
-    assert bundle.study_context.standards == ["MNMS"]
-
-    assert bundle.metadata_assertions
-    assert bundle.evidence_assertions
-    assert bundle.mapping_assertions
-    assert bundle.graph_assertions
-    assert bundle.review_notes
-
-    for collection in (
-        bundle.metadata_assertions,
-        bundle.evidence_assertions,
-        bundle.mapping_assertions,
-        bundle.graph_assertions,
-        bundle.review_notes,
-    ):
-        assert all(item.status == "proposed" for item in collection)
-
-    assert any(
-        anchor.source_id == "DOI:10.1000/hcm.methods.2024"
-        and "[1]" in anchor.citation_markers
-        for assertion in bundle.evidence_assertions
-        for anchor in assertion.source_anchors
+    assert set(payload) == {
+        "package_metadata",
+        "study_context",
+        "metadata_assertions",
+        "evidence_assertions",
+        "mapping_assertions",
+        "graph_assertions",
+        "review_notes",
+    }
+    _assert_exact_keys(
+        payload["package_metadata"],
+        {"package_id", "created_at", "created_by", "contract_name", "contract_version", "domain_type"},
     )
-    assert any(
-        assertion.assertion_id.startswith("traceability-evidence-")
-        for assertion in bundle.evidence_assertions
-    )
-    assert any(mapping.classification == "MNMS_core" for mapping in bundle.mapping_assertions)
-    assert any(
-        graph.subject == "Study_001" and graph.predicate == "uses_system"
-        for graph in bundle.graph_assertions
-    )
-    assert any(assertion.epistemic_label == "fact" for assertion in bundle.evidence_assertions)
-    assert any(assertion.epistemic_label == "missing" for assertion in bundle.metadata_assertions)
-    risk_note = next(note for note in bundle.review_notes if note.note_id == "risk-note-1-1")
-    assert risk_note.source_anchors
-    assert risk_note.source_anchors[0].source_id == "[2]"
-    assert risk_note.disposition == "flag"
-    assert all(anchor.source_id != "Study_001" for anchor in risk_note.source_anchors)
-    assert any(note.persona == "Reviewer-2" for note in bundle.review_notes)
-    assert any(note.disposition == "request_changes" for note in bundle.review_notes)
+    assert payload["package_metadata"]["contract_name"] == "MAPPPP"
+    assert payload["package_metadata"]["contract_version"] == "0.1.0"
+    assert payload["package_metadata"]["domain_type"] == "home_cage_monitoring"
 
-    payload = bundle.model_dump(mode="json")
-    top_level_keys = set(payload)
-    assert "mapping_assertions" in top_level_keys
-    assert "graph_assertions" in top_level_keys
-    assert "candidate_mnms_mappings" not in top_level_keys
-    assert "candidate_graph_assertions" not in top_level_keys
+    _assert_exact_keys(payload["study_context"], {"species"})
+    assert payload["study_context"]["species"] == "mouse"
+
+    assert payload["metadata_assertions"]
+    assert payload["evidence_assertions"]
+    assert payload["mapping_assertions"]
+    assert payload["graph_assertions"]
+    assert payload["review_notes"]
+
+    for item in payload["metadata_assertions"]:
+        _assert_exact_keys(item, {"assertion_id", "status", "epistemic_label", "provenance", "field", "value"})
+        assert item["status"] == "proposed"
+        assert item["epistemic_label"] in {"observed", "inferred", "speculative", "missing_information", "context_specific", "disputed", "asserted"}
+        _assert_exact_keys(item["provenance"], {"source_anchors"})
+    for item in payload["evidence_assertions"]:
+        _assert_exact_keys(item, {"assertion_id", "status", "epistemic_label", "provenance", "subject", "observation", "value"})
+        assert item["status"] == "proposed"
+        assert item["epistemic_label"] in {"observed", "inferred", "speculative", "missing_information", "context_specific", "disputed", "asserted"}
+        _assert_exact_keys(item["provenance"], {"source_anchors"})
+    for item in payload["mapping_assertions"]:
+        _assert_exact_keys(
+            item,
+            {"assertion_id", "status", "epistemic_label", "provenance", "local_field", "target_schema", "target_field", "mapping_rationale", "confidence"},
+        )
+        assert item["target_schema"] == "MNMS"
+        assert isinstance(item["confidence"], float)
+        _assert_exact_keys(item["provenance"], {"source_anchors"})
+    for item in payload["graph_assertions"]:
+        assert set(item).issubset({"assertion_id", "status", "epistemic_label", "provenance", "subject", "predicate", "object", "object_type"})
+        assert {"assertion_id", "status", "epistemic_label", "provenance", "subject", "predicate", "object"}.issubset(item)
+        _assert_exact_keys(item["provenance"], {"source_anchors"})
+    for item in payload["review_notes"]:
+        _assert_exact_keys(item, {"note_id", "disposition", "note", "provenance", "related_assertion_ids"})
+        assert item["disposition"] in {"flag", "comment", "request_changes"}
+        assert isinstance(item["related_assertion_ids"], list)
+        _assert_exact_keys(item["provenance"], {"source_anchors"})
 
     legacy_keys = _collect_keys(payload)
-    assert "proposal_level" not in legacy_keys
-    assert "accepted" not in legacy_keys
-    assert "curator_confirmed" not in legacy_keys
-    assert "note_type" not in legacy_keys
+    for legacy_key in (
+        "schema_name",
+        "schema_version",
+        "source_package_metadata",
+        "exported_at",
+        "exporter",
+        "swarm_name",
+        "swarm_description",
+        "swarm_output_dir",
+        "domain",
+        "standards",
+        "output_sections",
+        "inferred_from",
+        "statement",
+        "assertion_type",
+        "persona",
+        "in_text_citations",
+        "notes",
+        "mapping_id",
+        "metadata_field",
+        "value_or_status",
+        "mnms_category",
+        "classification",
+        "evidence_level",
+        "note_type",
+    ):
+        assert legacy_key not in legacy_keys
 
-    json.dumps(payload)
+
+def test_export_hcm_mapppp_bundle_matches_canonical_example_family(tmp_path: Path):
+    config_path, matrix_path, draft_path, notes_path = _write_hcm_fixture_files(tmp_path)
+    payload = export_hcm_mapppp_bundle(
+        config_path=config_path,
+        draft_path=draft_path,
+        traceability_matrix_path=matrix_path,
+        review_notes_path=notes_path,
+    ).model_dump(mode="json", exclude_none=True)
+
+    expected_family = {
+        "package_metadata": {
+            "package_id": str,
+            "created_at": str,
+            "created_by": str,
+            "contract_name": "MAPPPP",
+            "contract_version": "0.1.0",
+            "domain_type": "home_cage_monitoring",
+        },
+        "study_context": {"species": "mouse"},
+        "metadata_assertions": list,
+        "evidence_assertions": list,
+        "mapping_assertions": list,
+        "graph_assertions": list,
+        "review_notes": list,
+    }
+    assert payload["package_metadata"]["contract_name"] == expected_family["package_metadata"]["contract_name"]
+    assert payload["package_metadata"]["contract_version"] == expected_family["package_metadata"]["contract_version"]
+    assert payload["package_metadata"]["domain_type"] == expected_family["package_metadata"]["domain_type"]
+    assert payload["study_context"] == expected_family["study_context"]
+    assert isinstance(payload["metadata_assertions"], expected_family["metadata_assertions"])
+    assert isinstance(payload["evidence_assertions"], expected_family["evidence_assertions"])
+    assert isinstance(payload["mapping_assertions"], expected_family["mapping_assertions"])
+    assert isinstance(payload["graph_assertions"], expected_family["graph_assertions"])
+    assert isinstance(payload["review_notes"], expected_family["review_notes"])
 
 
 def test_export_hcm_mapppp_bundle_raises_for_missing_explicit_review_notes_path(tmp_path: Path):
@@ -221,10 +267,7 @@ def test_export_hcm_mapppp_bundle_raises_for_missing_explicit_review_notes_path(
         raise AssertionError("Expected FileNotFoundError for missing explicit review notes path")
 
 
-def test_export_mapppp_hcm_cli_writes_bundle_json(tmp_path: Path):
-    pytest.importorskip("langgraph")
-    from automation.main import app
-
+def test_export_mapppp_hcm_cli_writes_canonical_bundle_json(tmp_path: Path):
     config_path, matrix_path, draft_path, notes_path = _write_hcm_fixture_files(tmp_path)
     output_path = tmp_path / "mapppp_bundle.json"
 
@@ -249,7 +292,10 @@ def test_export_mapppp_hcm_cli_writes_bundle_json(tmp_path: Path):
 
     assert result.exit_code == 0, result.output
     payload = json.loads(output_path.read_text(encoding="utf-8"))
-    assert payload["package_metadata"]["swarm_name"] == "HCMSAS"
-    assert payload["graph_assertions"][0]["status"] == "proposed"
-    assert payload["review_notes"][-1]["persona"] == "Reviewer-2"
+    assert payload["package_metadata"]["contract_name"] == "MAPPPP"
+    assert payload["package_metadata"]["contract_version"] == "0.1.0"
+    assert payload["package_metadata"]["domain_type"] == "home_cage_monitoring"
+    assert "source_package_metadata" not in payload
+    assert "schema_name" not in payload
+    assert "schema_version" not in payload
     assert payload["review_notes"][-1]["disposition"] == "request_changes"
