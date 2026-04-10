@@ -33,6 +33,7 @@ import datetime
 import json
 import uuid
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 import typer
 from dotenv import load_dotenv
@@ -73,7 +74,15 @@ from automation.config import (
     get_hitl_config,
 )
 from automation.exporters import export_hcm_mapppp_bundle
-from automation.graph import build_graph, Command  # Command re-exported from graph.py
+
+if TYPE_CHECKING:
+    from automation.graph import Command
+
+
+def _load_graph_runtime() -> tuple[Any, type[Any]]:
+    from automation.graph import Command, build_graph
+
+    return build_graph, Command
 
 # Load environment configuration (.env)
 load_dotenv()
@@ -310,8 +319,9 @@ async def _run_graph_async(config: dict, prompt: str, graph, run_config: dict) -
     Specialist and Journalist nodes are async (using _run_tool_loop_async) so
     multiple tool calls within a single agent turn run concurrently.
     """
+    _, command_cls = _load_graph_runtime()
     final_token_usage: dict = {}
-    current_input: dict | Command = {
+    current_input: dict | Any = {
         "task": prompt,
         "messages": [],
         "agent_outputs": {},
@@ -345,7 +355,7 @@ async def _run_graph_async(config: dict, prompt: str, graph, run_config: dict) -
             if "__interrupt__" in event:
                 interrupt_objs = event["__interrupt__"]
                 answer = _handle_hitl_interrupt(interrupt_objs)
-                current_input = Command(resume=answer)
+                current_input = command_cls(resume=answer)
                 interrupted = True
                 break
 
@@ -394,6 +404,7 @@ def _run_graph(config: dict, prompt: str) -> None:
             fg=typer.colors.CYAN,
         )
 
+    build_graph, _ = _load_graph_runtime()
     graph = build_graph(config)
 
     # Thread config: required for MemorySaver interrupt/resume; empty dict otherwise.
