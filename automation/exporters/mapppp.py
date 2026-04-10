@@ -33,22 +33,22 @@ _TRACEABILITY_HEADERS = [
     "status",
 ]
 _EPISTEMIC_LABEL_MAP = {
-    "[FACT]": "observed",
+    "[FACT]": "reported",
     "[INFERENCE]": "inferred",
-    "[SPECULATION]": "speculative",
-    "[MISSING]": "missing_information",
-    "[MISSING SOURCE]": "missing_information",
-    "[PLATFORM-SPECIFIC]": "context_specific",
-    "[CONTESTED]": "disputed",
+    "[SPECULATION]": "uncertain",
+    "[MISSING]": "uncertain",
+    "[MISSING SOURCE]": "uncertain",
+    "[PLATFORM-SPECIFIC]": "extracted",
+    "[CONTESTED]": "uncertain",
 }
 
 HCM_METADATA_PERSONA = "Metadata Architect"
 HCM_RISK_PERSONA = "Reproducibility and Bias Auditor"
 CANONICAL_PROPOSED_STATUS = "proposed"
-DEFAULT_EPISTEMIC_LABEL = "asserted"
+DEFAULT_EPISTEMIC_LABEL = "normalized"
 CONTRACT_NAME = "MAPPPP"
 CONTRACT_VERSION = "0.1.0"
-DOMAIN_TYPE = "home_cage_monitoring"
+DOMAIN_TYPE = "hcm"
 
 
 def _unique(values: list[str]) -> list[str]:
@@ -191,7 +191,10 @@ class SourceAnchor(BaseModel):
 
 
 class Provenance(BaseModel):
-    source_anchors: list[SourceAnchor] = Field(default_factory=list)
+    source_id: str
+    source_anchor: str
+    proposed_by: str
+    created_at: str
 
 
 class PackageMetadata(BaseModel):
@@ -296,8 +299,26 @@ def _build_source_anchors(
     return anchors
 
 
-def _provenance(source_id: str | None, citations: list[str], references: dict[str, str]) -> Provenance:
-    return Provenance(source_anchors=_build_source_anchors(source_id, citations, references))
+def _provenance(
+    source_id: str | None,
+    citations: list[str],
+    references: dict[str, str],
+    proposed_by: str,
+    created_at: str,
+) -> Provenance:
+    anchors = _build_source_anchors(source_id, citations, references)
+    primary = anchors[0] if anchors else SourceAnchor(
+        source_id=source_id or "unknown_source",
+        citation_markers=[],
+        reference_text=None,
+    )
+    source_anchor = primary.citation_markers[0] if primary.citation_markers else primary.source_id
+    return Provenance(
+        source_id=primary.source_id,
+        source_anchor=source_anchor,
+        proposed_by=proposed_by,
+        created_at=created_at,
+    )
 
 
 def _infer_species(config: dict[str, Any], draft_text: str) -> str | None:
@@ -405,10 +426,8 @@ def _object_type_from_value(value: str) -> str | None:
 
 def _collect_anchor_tokens(provenance: Provenance) -> set[str]:
     tokens: set[str] = set()
-    for anchor in provenance.source_anchors:
-        tokens.add(anchor.source_id.lower())
-        for citation in anchor.citation_markers:
-            tokens.add(citation.lower())
+    tokens.add(provenance.source_id.lower())
+    tokens.add(provenance.source_anchor.lower())
     return tokens
 
 
@@ -468,6 +487,7 @@ def export_hcm_mapppp_bundle(
     traceability_rows = _load_traceability_rows(traceability_matrix_path)
 
     exported_timestamp = exported_at or datetime.now(timezone.utc)
+    exported_at_iso = exported_timestamp.isoformat(timespec="seconds")
     swarm = config.get("swarm", {})
     swarm_slug = _slugify(swarm.get("name", "science_agent_squad")) or "science_agent_squad"
     package_id = f"{swarm_slug}-mapppp-{exported_timestamp.strftime('%Y%m%dT%H%M%SZ')}"
@@ -485,7 +505,13 @@ def export_hcm_mapppp_bundle(
         if not statement or statement.lower().startswith("matrix initialized"):
             continue
         citations = _extract_citations(statement + " " + row.get("notes", ""))
-        provenance = _provenance(row.get("source"), citations, references)
+        provenance = _provenance(
+            row.get("source"),
+            citations,
+            references,
+            proposed_by=row.get("agent") or "traceability_matrix",
+            created_at=exported_at_iso,
+        )
         cleaned_statement = _strip_epistemic_and_citations(statement)
         epistemic_label = _first_epistemic_label(row.get("epistemic_tag", ""))
         evidence_assertions.append(
@@ -525,7 +551,13 @@ def export_hcm_mapppp_bundle(
                     observation=cleaned_statement,
                     value=_strip_epistemic_and_citations(notes) or cleaned_statement,
                     epistemic_label=_first_epistemic_label(statement, notes),
-                    provenance=_provenance(source_id, citations, references),
+                    provenance=_provenance(
+                        source_id,
+                        citations,
+                        references,
+                        proposed_by="journalist_evidence_table",
+                        created_at=exported_at_iso,
+                    ),
                 )
             )
 
@@ -534,7 +566,7 @@ def export_hcm_mapppp_bundle(
             notes = row.get("notes") or ""
             citations = _extract_citations(" ".join(filter(None, [notes, row.get("source", "")])))
             epistemic_label = (
-                "missing_information"
+                "uncertain"
                 if (row.get("value_or_status") or "").strip().lower() == "missing"
                 else _first_epistemic_label(notes)
             )
@@ -549,7 +581,13 @@ def export_hcm_mapppp_bundle(
                     ),
                     confidence=_mapping_confidence(row.get("classification"), row.get("value_or_status")),
                     epistemic_label=epistemic_label,
-                    provenance=_provenance(row.get("source"), citations, references),
+                    provenance=_provenance(
+                        row.get("source"),
+                        citations,
+                        references,
+                        proposed_by=HCM_METADATA_PERSONA,
+                        created_at=exported_at_iso,
+                    ),
                 )
             )
             metadata_assertions.append(
@@ -558,7 +596,13 @@ def export_hcm_mapppp_bundle(
                     field=_slugify(row.get("metadata_field", "")),
                     value=str(row.get("value_or_status") or ""),
                     epistemic_label=epistemic_label,
-                    provenance=_provenance(row.get("source"), citations, references),
+                    provenance=_provenance(
+                        row.get("source"),
+                        citations,
+                        references,
+                        proposed_by=HCM_METADATA_PERSONA,
+                        created_at=exported_at_iso,
+                    ),
                 )
             )
 
@@ -571,7 +615,13 @@ def export_hcm_mapppp_bundle(
                 field=field,
                 value=value,
                 epistemic_label=_first_epistemic_label(bullet),
-                provenance=_provenance(None, citations, references),
+                provenance=_provenance(
+                    None,
+                    citations,
+                    references,
+                    proposed_by=HCM_METADATA_PERSONA,
+                    created_at=exported_at_iso,
+                ),
             )
         )
 
@@ -589,7 +639,13 @@ def export_hcm_mapppp_bundle(
                     object=row["object"],
                     object_type=_object_type_from_value(row["object"]),
                     epistemic_label=_first_epistemic_label(row.get("evidence_level", ""), notes),
-                    provenance=_provenance(row.get("source_id"), citations, references),
+                    provenance=_provenance(
+                        row.get("source_id"),
+                        citations,
+                        references,
+                        proposed_by="journalist_graph_schema",
+                        created_at=exported_at_iso,
+                    ),
                 )
             )
 
@@ -599,7 +655,13 @@ def export_hcm_mapppp_bundle(
             if not note:
                 continue
             citations = _extract_citations(note)
-            provenance = _provenance(None, citations, references)
+            provenance = _provenance(
+                None,
+                citations,
+                references,
+                proposed_by=HCM_RISK_PERSONA,
+                created_at=exported_at_iso,
+            )
             review_notes.append(
                 ReviewNote(
                     note_id=f"risk-note-{index}-{row_index}",
@@ -625,7 +687,13 @@ def export_hcm_mapppp_bundle(
             [str(citation) for citation in payload.get("citations", []) if citation]
             + _extract_citations(note)
         )
-        provenance = _provenance(payload.get("source_anchor"), citations, references)
+        provenance = _provenance(
+            payload.get("source_anchor"),
+            citations,
+            references,
+            proposed_by=str(payload.get("persona", "Reviewer-2")),
+            created_at=exported_at_iso,
+        )
         review_notes.append(
             ReviewNote(
                 note_id=f"external-review-note-{index}",
@@ -650,7 +718,7 @@ def export_hcm_mapppp_bundle(
     return MAPPPPBundle(
         package_metadata=PackageMetadata(
             package_id=package_id,
-            created_at=exported_timestamp.isoformat(timespec="seconds"),
+            created_at=exported_at_iso,
             created_by="automation.exporters.mapppp.export_hcm_mapppp_bundle",
         ),
         study_context=study_context,

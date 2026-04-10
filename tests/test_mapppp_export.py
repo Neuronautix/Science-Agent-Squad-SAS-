@@ -118,6 +118,11 @@ def _assert_exact_keys(item: dict, expected_keys: set[str]) -> None:
     assert set(item) == expected_keys
 
 
+def _assert_provenance_shape(item: dict) -> None:
+    _assert_exact_keys(item["provenance"], {"source_id", "source_anchor", "proposed_by", "created_at"})
+    assert "source_anchors" not in item["provenance"]
+
+
 def test_export_hcm_mapppp_bundle_matches_canonical_contract_shape(tmp_path: Path):
     config_path, matrix_path, draft_path, notes_path = _write_hcm_fixture_files(tmp_path)
 
@@ -144,7 +149,7 @@ def test_export_hcm_mapppp_bundle_matches_canonical_contract_shape(tmp_path: Pat
     )
     assert payload["package_metadata"]["contract_name"] == "MAPPPP"
     assert payload["package_metadata"]["contract_version"] == "0.1.0"
-    assert payload["package_metadata"]["domain_type"] == "home_cage_monitoring"
+    assert payload["package_metadata"]["domain_type"] == "hcm"
 
     _assert_exact_keys(payload["study_context"], {"species"})
     assert payload["study_context"]["species"] == "mouse"
@@ -158,13 +163,13 @@ def test_export_hcm_mapppp_bundle_matches_canonical_contract_shape(tmp_path: Pat
     for item in payload["metadata_assertions"]:
         _assert_exact_keys(item, {"assertion_id", "status", "epistemic_label", "provenance", "field", "value"})
         assert item["status"] == "proposed"
-        assert item["epistemic_label"] in {"observed", "inferred", "speculative", "missing_information", "context_specific", "disputed", "asserted"}
-        _assert_exact_keys(item["provenance"], {"source_anchors"})
+        assert item["epistemic_label"] in {"reported", "extracted", "inferred", "normalized", "uncertain"}
+        _assert_provenance_shape(item)
     for item in payload["evidence_assertions"]:
         _assert_exact_keys(item, {"assertion_id", "status", "epistemic_label", "provenance", "subject", "observation", "value"})
         assert item["status"] == "proposed"
-        assert item["epistemic_label"] in {"observed", "inferred", "speculative", "missing_information", "context_specific", "disputed", "asserted"}
-        _assert_exact_keys(item["provenance"], {"source_anchors"})
+        assert item["epistemic_label"] in {"reported", "extracted", "inferred", "normalized", "uncertain"}
+        _assert_provenance_shape(item)
     for item in payload["mapping_assertions"]:
         _assert_exact_keys(
             item,
@@ -172,16 +177,18 @@ def test_export_hcm_mapppp_bundle_matches_canonical_contract_shape(tmp_path: Pat
         )
         assert item["target_schema"] == "MNMS"
         assert isinstance(item["confidence"], float)
-        _assert_exact_keys(item["provenance"], {"source_anchors"})
+        assert item["epistemic_label"] in {"reported", "extracted", "inferred", "normalized", "uncertain"}
+        _assert_provenance_shape(item)
     for item in payload["graph_assertions"]:
         assert set(item).issubset({"assertion_id", "status", "epistemic_label", "provenance", "subject", "predicate", "object", "object_type"})
         assert {"assertion_id", "status", "epistemic_label", "provenance", "subject", "predicate", "object"}.issubset(item)
-        _assert_exact_keys(item["provenance"], {"source_anchors"})
+        assert item["epistemic_label"] in {"reported", "extracted", "inferred", "normalized", "uncertain"}
+        _assert_provenance_shape(item)
     for item in payload["review_notes"]:
         _assert_exact_keys(item, {"note_id", "disposition", "note", "provenance", "related_assertion_ids"})
         assert item["disposition"] in {"flag", "comment", "request_changes"}
         assert isinstance(item["related_assertion_ids"], list)
-        _assert_exact_keys(item["provenance"], {"source_anchors"})
+        _assert_provenance_shape(item)
 
     legacy_keys = _collect_keys(payload)
     for legacy_key in (
@@ -229,7 +236,7 @@ def test_export_hcm_mapppp_bundle_matches_canonical_example_family(tmp_path: Pat
             "created_by": str,
             "contract_name": "MAPPPP",
             "contract_version": "0.1.0",
-            "domain_type": "home_cage_monitoring",
+            "domain_type": "hcm",
         },
         "study_context": {"species": "mouse"},
         "metadata_assertions": list,
@@ -247,6 +254,32 @@ def test_export_hcm_mapppp_bundle_matches_canonical_example_family(tmp_path: Pat
     assert isinstance(payload["mapping_assertions"], expected_family["mapping_assertions"])
     assert isinstance(payload["graph_assertions"], expected_family["graph_assertions"])
     assert isinstance(payload["review_notes"], expected_family["review_notes"])
+
+
+def test_export_hcm_mapppp_bundle_matches_validator_compatibility_expectations(tmp_path: Path):
+    config_path, matrix_path, draft_path, notes_path = _write_hcm_fixture_files(tmp_path)
+    payload = export_hcm_mapppp_bundle(
+        config_path=config_path,
+        draft_path=draft_path,
+        traceability_matrix_path=matrix_path,
+        review_notes_path=notes_path,
+    ).model_dump(mode="json", exclude_none=True)
+
+    assert payload["package_metadata"]["domain_type"] in {"generic", "hcm"}
+    allowed_epistemic_labels = {"reported", "extracted", "inferred", "normalized", "uncertain"}
+    for family in (
+        payload["metadata_assertions"],
+        payload["evidence_assertions"],
+        payload["mapping_assertions"],
+        payload["graph_assertions"],
+    ):
+        for item in family:
+            assert item["epistemic_label"] in allowed_epistemic_labels
+            assert set(item["provenance"]) == {"source_id", "source_anchor", "proposed_by", "created_at"}
+            assert "source_anchors" not in item["provenance"]
+    for item in payload["review_notes"]:
+        assert set(item["provenance"]) == {"source_id", "source_anchor", "proposed_by", "created_at"}
+        assert "source_anchors" not in item["provenance"]
 
 
 def test_export_hcm_mapppp_bundle_raises_for_missing_explicit_review_notes_path(tmp_path: Path):
@@ -294,8 +327,10 @@ def test_export_mapppp_hcm_cli_writes_canonical_bundle_json(tmp_path: Path):
     payload = json.loads(output_path.read_text(encoding="utf-8"))
     assert payload["package_metadata"]["contract_name"] == "MAPPPP"
     assert payload["package_metadata"]["contract_version"] == "0.1.0"
-    assert payload["package_metadata"]["domain_type"] == "home_cage_monitoring"
+    assert payload["package_metadata"]["domain_type"] == "hcm"
     assert "source_package_metadata" not in payload
     assert "schema_name" not in payload
     assert "schema_version" not in payload
     assert payload["review_notes"][-1]["disposition"] == "request_changes"
+    assert set(payload["metadata_assertions"][0]["provenance"]) == {"source_id", "source_anchor", "proposed_by", "created_at"}
+    assert "source_anchors" not in payload["metadata_assertions"][0]["provenance"]
