@@ -30,6 +30,8 @@ sudo apt update
 sudo apt install -y python3 python3-venv make
 ```
 
+After `make setup`, prefer the installed `swarm` command for day-to-day CLI usage. That avoids depending on a `python` alias, which is commonly missing on Linux and WSL.
+
 ### Native Windows (PowerShell)
 
 ```powershell

@@ -40,6 +40,8 @@ sudo apt update
 sudo apt install -y python3 python3-venv make
 ```
 
+After `make setup`, prefer the installed `swarm` command for CLI workflows. This avoids relying on a `python` alias, which is often absent on Linux and WSL.
+
 ### Native Windows (PowerShell)
 
 Use PowerShell for native Windows setup. This avoids requiring GNU Make.
@@ -62,13 +64,13 @@ The repository now includes the first eight phases of an interactive swarm build
 Use the builder-backed command:
 
 ```bash
-python -m automation.main init
+swarm init
 ```
 
 Use the reusable blueprint command group when you want to save a team and recreate it in another repository:
 
 ```bash
-python -m automation.main blueprint --help
+swarm blueprint --help
 ```
 
 Current capabilities:
@@ -76,36 +78,36 @@ Current capabilities:
 - create a valid `swarm_config.yml` from a typed builder spec
 - generate persona markdown files and `agents/*/KB/` folders
 - start from named blueprints such as `research-core`, `literature-mapping`, `intervention-lab`, and `rapid-brief`
-- list available blueprints with `python -m automation.main blueprints`
+- list available blueprints with `swarm blueprints`
 - define specialist personas interactively with richer prompts when you do not want a preset blueprint
 - preview file-level diffs before writes occur
-- inspect the active swarm with `python -m automation.main preview`
-- validate the active swarm with `python -m automation.main doctor`
-- add a persona with `python -m automation.main persona add`
-- edit a persona with `python -m automation.main persona edit`
-- configure orchestration and HITL with `python -m automation.main team configure`
-- configure reviewer policy with `python -m automation.main review configure`
-- configure the primary model with `python -m automation.main model configure`
-- configure swarm metadata with `python -m automation.main metadata configure`
-- curate the active tool registry with `python -m automation.main tools configure`
-- add a tool with `python -m automation.main tools add`
-- edit a tool with `python -m automation.main tools edit`
-- remove a tool with `python -m automation.main tools remove`
-- auto-repair safe filesystem issues with `python -m automation.main doctor --fix`
-- run the legacy `python -m automation.main scaffold "Domain"` command as a deprecated alias to builder-backed init
-- export the current swarm as a reusable blueprint with `python -m automation.main blueprint export`
-- import a reusable blueprint into another repo with `python -m automation.main blueprint import ./blueprints/MyTeam.swarm-blueprint.yml`
+- inspect the active swarm with `swarm preview`
+- validate the active swarm with `swarm doctor`
+- add a persona with `swarm persona add`
+- edit a persona with `swarm persona edit`
+- configure orchestration and HITL with `swarm team configure`
+- configure reviewer policy with `swarm review configure`
+- configure the primary model with `swarm model configure`
+- configure swarm metadata with `swarm metadata configure`
+- curate the active tool registry with `swarm tools configure`
+- add a tool with `swarm tools add`
+- edit a tool with `swarm tools edit`
+- remove a tool with `swarm tools remove`
+- auto-repair safe filesystem issues with `swarm doctor --fix`
+- run the legacy `swarm scaffold "Domain"` command as a deprecated alias to builder-backed init
+- export the current swarm as a reusable blueprint with `swarm blueprint export`
+- import a reusable blueprint into another repo with `swarm blueprint import ./blueprints/MyTeam.swarm-blueprint.yml`
 
 For a non-interactive starter swarm:
 
 ```bash
-python -m automation.main init --no-interactive --domain "Climate Science" --name "Climate Science Swarm"
+swarm init --no-interactive --domain "Climate Science" --name "Climate Science Swarm"
 ```
 
 For a non-interactive blueprint-based swarm:
 
 ```bash
-python -m automation.main init --no-interactive --template literature-mapping --domain "Behavioral Addiction" --name "Behavioral Addiction Map"
+swarm init --no-interactive --template literature-mapping --domain "Behavioral Addiction" --name "Behavioral Addiction Map"
 ```
 
 ### Reusable Blueprints
@@ -125,15 +127,25 @@ Default behavior:
 Example:
 
 ```bash
-python -m automation.main blueprint export --name "Behavioral Addiction Team"
-python -m automation.main blueprint import ./blueprints/BehavioralAddictionTeam.swarm-blueprint.yml --domain "Sleep Research" --name "Sleep Research Team"
+swarm blueprint export --name "Behavioral Addiction Team"
+swarm blueprint import ./blueprints/BehavioralAddictionTeam.swarm-blueprint.yml --domain "Sleep Research" --name "Sleep Research Team"
 ```
 
 Useful options:
 
-- `python -m automation.main blueprint export --output ./blueprints/custom-team.swarm-blueprint.yml --overwrite`
-- `python -m automation.main blueprint import ./blueprints/custom-team.swarm-blueprint.yml --description "Focused evidence-mapping swarm" --yes`
-- `python -m automation.main export mapppp-hcm --draft-path ./Drafts/HCMSAS/final_report.md --output ./Drafts/HCMSAS/mapppp_bundle.json`
+- `swarm blueprint export --output ./blueprints/custom-team.swarm-blueprint.yml --overwrite`
+- `swarm blueprint import ./blueprints/custom-team.swarm-blueprint.yml --description "Focused evidence-mapping swarm" --yes`
+- `swarm export mapppp-hcm --draft-path ./Drafts/HCMSAS/final_report.md --output ./Drafts/HCMSAS/mapppp_bundle.json`
+
+For ad hoc Linux or WSL smoke tests outside the project root, use the local repo path plus `python3` before setup, or run the command from an activated virtualenv after `make setup`:
+
+```bash
+cd /home/dhuzard/projects/Science-Agent-Squad-SAS-
+python3 -m venv .venv
+. .venv/bin/activate
+python -m pip install -e ".[dev]"
+swarm export mapppp-hcm --config-path /tmp/mapppp-smoke/swarm_config_hcmsas.yml --draft-path /tmp/mapppp-smoke/hcm_report.md --traceability-matrix /tmp/mapppp-smoke/Knowledge_Traceability_Matrix_HCMSAS.md --review-notes-path /tmp/mapppp-smoke/review_notes.json --output /tmp/mapppp-smoke/mapppp_bundle.json
+```
 
 ## Persona Squad
 
