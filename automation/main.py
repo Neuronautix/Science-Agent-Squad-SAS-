@@ -74,6 +74,7 @@ from automation.config import (
     get_hitl_config,
 )
 from automation.exporters import export_hcm_mapppp_bundle
+from automation.hcm_pilot import run_hcm_pilot
 
 if TYPE_CHECKING:
     from automation.graph import Command
@@ -102,6 +103,7 @@ model_app = typer.Typer(help="Configure model provider, model name, and env key.
 metadata_app = typer.Typer(help="Configure swarm metadata, output paths, and epistemic tags.")
 tools_app = typer.Typer(help="Curate the active tool registry for the current swarm.")
 export_app = typer.Typer(help="Export existing swarm outputs into downstream packaging bundles.")
+pilot_app = typer.Typer(help="Deterministic pilot workflows with cached seed corpora.")
 app.add_typer(blueprint_app, name="blueprint")
 app.add_typer(persona_app, name="persona")
 app.add_typer(team_app, name="team")
@@ -110,6 +112,7 @@ app.add_typer(model_app, name="model")
 app.add_typer(metadata_app, name="metadata")
 app.add_typer(tools_app, name="tools")
 app.add_typer(export_app, name="export")
+app.add_typer(pilot_app, name="pilot")
 
 # ── Report-mode templates ─────────────────────────────────────────────────
 REPORT_MODES = {
@@ -1334,6 +1337,49 @@ def export_mapppp_hcm(
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(bundle.model_dump_json(indent=2), encoding="utf-8")
     typer.secho(f"✅ Wrote MAPPPP bundle to {output}", fg=typer.colors.GREEN)
+
+
+@pilot_app.command("hcm")
+def pilot_hcm(
+    spec_path: Path = typer.Option(
+        Path("./tests/fixtures/hcm_circadian_mouse_demo.yaml"),
+        "--spec-path",
+        help="Pilot YAML spec containing pilot name, research question, and fixed seed PMIDs.",
+    ),
+    output_root: Path | None = typer.Option(
+        None,
+        "--output-root",
+        help="Optional root directory for cache, intermediates, draft, traceability matrix, and MAPPPP bundle.",
+    ),
+    refresh_cache: bool = typer.Option(
+        False,
+        "--refresh-cache",
+        help="Re-fetch the fixed PMID seed corpus even if cached paper JSON already exists.",
+    ),
+    refresh_intermediates: bool = typer.Option(
+        False,
+        "--refresh-intermediates",
+        help="Rebuild deterministic intermediate extraction files even if they already exist.",
+    ),
+):
+    """Run the deterministic HCM pilot mode from a fixed PMID seed corpus."""
+    try:
+        outputs = run_hcm_pilot(
+            spec_path=spec_path,
+            output_root=output_root,
+            refresh_cache=refresh_cache,
+            refresh_intermediates=refresh_intermediates,
+        )
+    except FileNotFoundError as e:
+        typer.secho(f"PILOT ERROR: {e}", fg=typer.colors.RED)
+        raise typer.Exit(code=1)
+    except Exception as e:
+        typer.secho(f"PILOT ERROR: {e}", fg=typer.colors.RED)
+        raise typer.Exit(code=1)
+
+    typer.secho(f"✅ Wrote pilot draft to {outputs['draft']}", fg=typer.colors.GREEN)
+    typer.secho(f"✅ Wrote traceability matrix to {outputs['traceability_matrix']}", fg=typer.colors.GREEN)
+    typer.secho(f"✅ Wrote MAPPPP bundle to {outputs['bundle']}", fg=typer.colors.GREEN)
 
 
 if __name__ == "__main__":

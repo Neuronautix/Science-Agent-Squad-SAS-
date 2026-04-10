@@ -158,6 +158,13 @@ Frozen contract:
 - MAPPPP version: `0.1.0`
 - domain: `hcm`
 - checked-in shared fixture: [tests/fixtures/hcm_mapppp_pilot_baseline_v0_1_0.json](/home/dhuzard/projects/Science-Agent-Squad-SAS-/tests/fixtures/hcm_mapppp_pilot_baseline_v0_1_0.json)
+- first successful end-to-end pilot artifact: [tests/fixtures/hcm_circadian_mouse_demo_pilot_v1_bundle.json](/home/dhuzard/projects/Science-Agent-Squad-SAS-/tests/fixtures/hcm_circadian_mouse_demo_pilot_v1_bundle.json)
+
+Deterministic HCM pilot demo command:
+
+```bash
+python -m automation.main pilot hcm --spec-path tests/fixtures/hcm_circadian_mouse_demo.yaml --output-root /tmp/hcm_circadian_mouse_demo_pilot
+```
 
 Canonical SAS export command:
 

@@ -30,19 +30,21 @@ Provides-Extra: dev
 Requires-Dist: pytest>=8.0; extra == "dev"
 Requires-Dist: ruff>=0.4; extra == "dev"
 
-# PIU Psych Swarm
+# Science-Agent-Squad
 
-A configurable multi-agent framework for psychiatric research on problematic internet use.
+A configurable multi-agent framework for scientific research, primarily focused on home cage monitoring (HCM) data.
 
-> The repository is preconfigured for psychiatric and behavioral-science work on problematic internet use, while remaining configurable for other research domains.
+> The repository is preconfigured for home cage monitoring (HCM) workflows while remaining configurable for other research domains.
 
 ## Focus
 
-PIU Psych Swarm is a LangGraph-based multi-agent system that researches, debates, and documents psychiatric questions about problematic internet use, including internet gaming disorder where relevant.
+Science-Agent-Squad is a LangGraph-based multi-agent system that researches, debates, and documents scientific questions, with the current primary application centered on preclinical home cage monitoring (HCM) data and metadata.
 
 The repository is currently optimized for:
 
-- clinically cautious synthesis that separates high engagement from impairment
+- HCM-focused evidence synthesis with explicit provenance
+- metadata extraction and normalization for preclinical studies
+- comparability-aware reporting across platforms, sensors, and classifier stacks
 - literature-backed summaries with in-text citations and references
 - reusable local knowledge bases for subagent-specific expertise
 - structured drafting workflows for reviews, evidence briefs, and study notes
@@ -58,11 +60,11 @@ Requirements:
 - `make`
 
 ```bash
-git clone https://github.com/dhuzard/piu-psych-swarm.git
-cd piu-psych-swarm
+git clone https://github.com/dhuzard/Science-Agent-Squad-SAS-.git
+cd Science-Agent-Squad-SAS-
 make setup
 make ingest
-make run PROMPT="Review the psychiatric literature on problematic internet use in adolescents, including prevalence, comorbidity, mechanisms, and interventions."
+make run PROMPT="Review the home cage monitoring literature in mice, including platform differences, metadata gaps, and comparability risks."
 ```
 
 If `make setup` fails because `python3` is missing, install it first. On Ubuntu or WSL:
@@ -72,19 +74,21 @@ sudo apt update
 sudo apt install -y python3 python3-venv make
 ```
 
+After `make setup`, prefer the installed `swarm` command for CLI workflows. This avoids relying on a `python` alias, which is often absent on Linux and WSL.
+
 ### Native Windows (PowerShell)
 
 Use PowerShell for native Windows setup. This avoids requiring GNU Make.
 
 ```powershell
-git clone https://github.com/dhuzard/piu-psych-swarm.git
-cd piu-psych-swarm
+git clone https://github.com/dhuzard/Science-Agent-Squad-SAS-.git
+cd Science-Agent-Squad-SAS-
 py -3 -m venv .venv
 .\.venv\Scripts\python -m pip install --upgrade pip
 .\.venv\Scripts\python -m pip install -e ".[dev]"
 if (-not (Test-Path .env)) { Copy-Item .env.example .env }
 .\.venv\Scripts\python -m automation.ingest
-.\.venv\Scripts\python -m automation.main execute "Review the psychiatric literature on problematic internet use in adolescents, including prevalence, comorbidity, mechanisms, and interventions."
+.\.venv\Scripts\python -m automation.main execute "Review the home cage monitoring literature in mice, including platform differences, metadata gaps, and comparability risks."
 ```
 
 ## Create Your Own Swarm
@@ -94,13 +98,13 @@ The repository now includes the first eight phases of an interactive swarm build
 Use the builder-backed command:
 
 ```bash
-python -m automation.main init
+swarm init
 ```
 
 Use the reusable blueprint command group when you want to save a team and recreate it in another repository:
 
 ```bash
-python -m automation.main blueprint --help
+swarm blueprint --help
 ```
 
 Current capabilities:
@@ -108,36 +112,36 @@ Current capabilities:
 - create a valid `swarm_config.yml` from a typed builder spec
 - generate persona markdown files and `agents/*/KB/` folders
 - start from named blueprints such as `research-core`, `literature-mapping`, `intervention-lab`, and `rapid-brief`
-- list available blueprints with `python -m automation.main blueprints`
+- list available blueprints with `swarm blueprints`
 - define specialist personas interactively with richer prompts when you do not want a preset blueprint
 - preview file-level diffs before writes occur
-- inspect the active swarm with `python -m automation.main preview`
-- validate the active swarm with `python -m automation.main doctor`
-- add a persona with `python -m automation.main persona add`
-- edit a persona with `python -m automation.main persona edit`
-- configure orchestration and HITL with `python -m automation.main team configure`
-- configure reviewer policy with `python -m automation.main review configure`
-- configure the primary model with `python -m automation.main model configure`
-- configure swarm metadata with `python -m automation.main metadata configure`
-- curate the active tool registry with `python -m automation.main tools configure`
-- add a tool with `python -m automation.main tools add`
-- edit a tool with `python -m automation.main tools edit`
-- remove a tool with `python -m automation.main tools remove`
-- auto-repair safe filesystem issues with `python -m automation.main doctor --fix`
-- run the legacy `python -m automation.main scaffold "Domain"` command as a deprecated alias to builder-backed init
-- export the current swarm as a reusable blueprint with `python -m automation.main blueprint export`
-- import a reusable blueprint into another repo with `python -m automation.main blueprint import ./blueprints/MyTeam.swarm-blueprint.yml`
+- inspect the active swarm with `swarm preview`
+- validate the active swarm with `swarm doctor`
+- add a persona with `swarm persona add`
+- edit a persona with `swarm persona edit`
+- configure orchestration and HITL with `swarm team configure`
+- configure reviewer policy with `swarm review configure`
+- configure the primary model with `swarm model configure`
+- configure swarm metadata with `swarm metadata configure`
+- curate the active tool registry with `swarm tools configure`
+- add a tool with `swarm tools add`
+- edit a tool with `swarm tools edit`
+- remove a tool with `swarm tools remove`
+- auto-repair safe filesystem issues with `swarm doctor --fix`
+- run the legacy `swarm scaffold "Domain"` command as a deprecated alias to builder-backed init
+- export the current swarm as a reusable blueprint with `swarm blueprint export`
+- import a reusable blueprint into another repo with `swarm blueprint import ./blueprints/MyTeam.swarm-blueprint.yml`
 
 For a non-interactive starter swarm:
 
 ```bash
-python -m automation.main init --no-interactive --domain "Climate Science" --name "Climate Science Swarm"
+swarm init --no-interactive --domain "Climate Science" --name "Climate Science Swarm"
 ```
 
 For a non-interactive blueprint-based swarm:
 
 ```bash
-python -m automation.main init --no-interactive --template literature-mapping --domain "Behavioral Addiction" --name "Behavioral Addiction Map"
+swarm init --no-interactive --template literature-mapping --domain "Home Cage Monitoring" --name "HCM Evidence Map"
 ```
 
 ### Reusable Blueprints
@@ -157,15 +161,48 @@ Default behavior:
 Example:
 
 ```bash
-python -m automation.main blueprint export --name "Behavioral Addiction Team"
-python -m automation.main blueprint import ./blueprints/BehavioralAddictionTeam.swarm-blueprint.yml --domain "Sleep Research" --name "Sleep Research Team"
+swarm blueprint export --name "Science-Agent-Squad"
+swarm blueprint import ./blueprints/ScienceAgentSquad.swarm-blueprint.yml --domain "Home Cage Monitoring" --name "Science-Agent-Squad"
 ```
 
 Useful options:
 
-- `python -m automation.main blueprint export --output ./blueprints/custom-team.swarm-blueprint.yml --overwrite`
-- `python -m automation.main blueprint import ./blueprints/custom-team.swarm-blueprint.yml --description "Focused evidence-mapping swarm" --yes`
-- `python -m automation.main export mapppp-hcm --draft-path ./Drafts/HCMSAS/final_report.md --output ./Drafts/HCMSAS/mapppp_bundle.json`
+- `swarm blueprint export --output ./blueprints/custom-team.swarm-blueprint.yml --overwrite`
+- `swarm blueprint import ./blueprints/custom-team.swarm-blueprint.yml --description "Focused evidence-mapping swarm" --yes`
+- `swarm export mapppp-hcm --draft-path ./Drafts/HCMSAS/final_report.md --output ./Drafts/HCMSAS/mapppp_bundle.json`
+
+For ad hoc Linux or WSL smoke tests outside the project root, use the local repo path plus `python3` before setup, or run the command from an activated virtualenv after `make setup`:
+
+```bash
+cd /home/dhuzard/projects/Science-Agent-Squad-SAS-
+python3 -m venv .venv
+. .venv/bin/activate
+python -m pip install -e ".[dev]"
+swarm export mapppp-hcm --config-path /tmp/mapppp-smoke/swarm_config_hcmsas.yml --draft-path /tmp/mapppp-smoke/hcm_report.md --traceability-matrix /tmp/mapppp-smoke/Knowledge_Traceability_Matrix_HCMSAS.md --review-notes-path /tmp/mapppp-smoke/review_notes.json --output /tmp/mapppp-smoke/mapppp_bundle.json
+```
+
+Expected output path: `/tmp/mapppp-smoke/mapppp_bundle.json`
+
+## HCM Pilot Baseline
+
+Frozen contract:
+
+- MAPPPP version: `0.1.0`
+- domain: `hcm`
+- checked-in shared fixture: [tests/fixtures/hcm_mapppp_pilot_baseline_v0_1_0.json](/home/dhuzard/projects/Science-Agent-Squad-SAS-/tests/fixtures/hcm_mapppp_pilot_baseline_v0_1_0.json)
+
+Canonical SAS export command:
+
+```bash
+python -m automation.main export mapppp-hcm --config-path /tmp/mapppp-smoke/swarm_config_hcmsas.yml --draft-path /tmp/mapppp-smoke/hcm_report.md --traceability-matrix /tmp/mapppp-smoke/Knowledge_Traceability_Matrix_HCMSAS.md --review-notes-path /tmp/mapppp-smoke/review_notes.json --output /tmp/mapppp-smoke/mapppp_bundle.json
+```
+
+Canonical OntoHistoria validate / ingest commands:
+
+```bash
+python -m mapppp validate /tmp/mapppp-smoke/mapppp_bundle.json
+ONTOHISTORIA_DATA_DIR=/tmp/ontohistoria-data python -m ontohistoria.mapppp_ingest /tmp/mapppp-smoke/mapppp_bundle.json
+```
 
 ## Persona Squad
 
@@ -184,13 +221,12 @@ Useful options:
 ```bash
 make ingest
 make info
-make run PROMPT="Create a scoping review outline for problematic internet use in university students."
+make run PROMPT="Create a scoping review outline for home cage monitoring platform comparability in mice."
 ```
 
 Useful working files:
 
-- Drafts/piu_prompt_set.md
-- Drafts/piu_study_workflow_template.md
+- Drafts/HCMSAS/
 - Article_Draft.md
 - Knowledge_Traceability_Matrix.md
 
@@ -198,10 +234,10 @@ Useful working files:
 
 | Tool | Purpose |
 | :--- | :--- |
-| search_pubmed | Search peer-reviewed biomedical and psychiatric literature |
+| search_pubmed | Search peer-reviewed biomedical and life-science literature |
 | trace_literature_network | Expand a major paper via its references and lead authors |
 | search_you_engine | Search the live web |
-| search_knowledge_base | Search local PIU literature packets in agents/*/KB/ |
+| search_knowledge_base | Search local HCM literature packets in agents/*/KB/ |
 | scrape_webpage | Pull full-text content from URLs |
 | append_traceability_matrix | Log evidence and epistemic status |
 | write_manuscript_section | Write markdown outputs into Drafts/ |
@@ -305,4 +341,4 @@ See [INTERACTIVE_SWARM_BUILDER_PLAN.md](INTERACTIVE_SWARM_BUILDER_PLAN.md) for t
 
 - The active team is controlled by swarm_config.yml.
 - KB ingestion and KB search now follow the configured personas rather than every folder under agents/.
-- The repository is currently curated for PIU-focused psychiatric research workflows.
+- The repository is currently curated for HCM-focused scientific research workflows.
